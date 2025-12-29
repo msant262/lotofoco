@@ -32,16 +32,51 @@ export interface LotteryInfo {
 }
 
 export async function getLotteryInfo(slug: string): Promise<LotteryInfo> {
-    // Override especial para Mega da Virada
+    // Override especial para Mega da Virada - Buscar dados reais do Firebase
     if (slug === 'mega-da-virada') {
         const currentYear = new Date().getFullYear();
+
+        try {
+            // Buscar metadados da Mega-Sena para pegar o acumulado da Virada
+            const metaRef = doc(db, 'games', 'Mega-Sena');
+            const metaDoc = await getDoc(metaRef);
+
+            if (metaDoc.exists()) {
+                const data = metaDoc.data();
+                // O prêmio da Virada está em 'acumuladoMegaVirada' (valorAcumuladoConcursoEspecial da API)
+                let viradaPrize = data.acumuladoMegaVirada || 0;
+
+                // A Caixa divulga um prêmio estimado que geralmente é maior que o fundo acumulado
+                // O prêmio real é calculado com base na arrecadação do concurso da Virada
+                // Usamos um mínimo estimado se o valor do banco parecer muito baixo
+                const ESTIMATED_VIRADA_2025 = 1_000_000_000; // Estimativa oficial da Caixa
+
+                // Se o valor do banco for muito baixo (< 500M), usar a estimativa
+                if (viradaPrize < 500_000_000) {
+                    viradaPrize = ESTIMATED_VIRADA_2025;
+                }
+
+                return {
+                    prize: formatCurrency(viradaPrize),
+                    contest: "VIRADA",
+                    date: `31/12/${currentYear}`,
+                    isToday: new Date().getMonth() === 11 && new Date().getDate() === 31,
+                    acumulado: true,
+                    acumuladoVirada: formatCurrency(viradaPrize)
+                };
+            }
+        } catch (e) {
+            console.error("Error fetching Mega da Virada info", e);
+        }
+
+        // Fallback se não conseguir buscar do banco
         return {
             prize: formatCurrency(600_000_000),
             contest: "VIRADA",
             date: `31/12/${currentYear}`,
             isToday: false,
             acumulado: true
-        }
+        };
     }
 
     // Default Fallback
