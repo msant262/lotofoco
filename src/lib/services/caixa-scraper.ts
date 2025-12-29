@@ -1,110 +1,360 @@
 import axios from 'axios';
-import * as XLSX from 'xlsx';
 import { db } from '@/lib/firebase';
-import { collection, doc, writeBatch, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp, collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 
-const BASE_URL = 'https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/download';
+// URL correta da API da Caixa
+const API_BASE = 'https://servicebus2.caixa.gov.br/portaldeloterias/api';
 
-const GAMES = ['Mega-Sena', 'Lotofácil', 'Quina'];
+const HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://loterias.caixa.gov.br',
+    'Referer': 'https://loterias.caixa.gov.br/'
+};
 
-const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// Slugs internos -> Slugs da API (minúsculo, sem acentos, sem hífens)
+const API_SLUGS: Record<string, string> = {
+    'mega-sena': 'megasena',
+    'lotofacil': 'lotofacil',
+    'quina': 'quina',
+    'lotomania': 'lotomania',
+    'timemania': 'timemania',
+    'dupla-sena': 'duplasena',
+    'dia-de-sorte': 'diadesorte',
+    'super-sete': 'supersete',
+    'mais-milionaria': 'maismilionaria',
+    'federal': 'federal',
+    'loteca': 'loteca'
+};
 
-interface LotteryDraw {
-    game: string;
+// Nomes para o Firestore
+const DB_NAMES: Record<string, string> = {
+    'mega-sena': 'Mega-Sena',
+    'lotofacil': 'Lotofácil',
+    'quina': 'Quina',
+    'lotomania': 'Lotomania',
+    'timemania': 'Timemania',
+    'dupla-sena': 'Dupla-Sena',
+    'dia-de-sorte': 'Dia-de-Sorte',
+    'super-sete': 'Super-Sete',
+    'mais-milionaria': '+Milionária',
+    'federal': 'Federal',
+    'loteca': 'Loteca'
+};
+
+export interface LotteryFullData {
+    // Identificação
     concurso: number;
     data: string;
+    tipoJogo: string;
+    localSorteio?: string;
+    nomeMunicipioUFSorteio?: string;
+
+    // Números
     dezenas: string[];
+    dezenasOrdemSorteio?: string[];
+    dezenasSegundoSorteio?: string[]; // Dupla Sena
+
+    // Acumulação
     acumulado: boolean;
+    valorAcumuladoProximoConcurso?: number;
+    valorAcumuladoConcursoEspecial?: number;
+    valorAcumuladoConcurso_0_5?: number;
+    valorSaldoReservaGarantidora?: number;
+
+    // Próximo Concurso
+    numeroConcursoProximo?: number;
+    dataProximoConcurso?: string;
+    valorEstimadoProximoConcurso?: number;
+
+    // Arrecadação
+    valorArrecadado?: number;
+
+    // Premiações
+    listaRateioPremio?: {
+        faixa: number;
+        descricaoFaixa: string;
+        numeroDeGanhadores: number;
+        valorPremio: number;
+    }[];
+    valorTotalPremioFaixaUm?: number;
+
+    // Extras
+    timeCoracao?: string;
+    mesSorte?: string;
+    trevos?: string[];
+
+    // Outros
+    observacao?: string;
+    indicadorConcursoEspecial?: number;
 }
 
 export class CaixaScraper {
-    static async fetchAndParse(game: string): Promise<LotteryDraw[]> {
-        console.log(`Starting scrape for ${game}...`);
+
+    // Busca da API da Caixa
+    static async fetchDraw(slug: string, concurso?: number): Promise<LotteryFullData | null> {
+        const apiSlug = API_SLUGS[slug];
+        if (!apiSlug) {
+            console.error(`[${slug}] Unknown slug`);
+            return null;
+        }
+
         try {
-            const response = await axios.get(BASE_URL, {
-                params: { modalidade: game },
-                responseType: 'arraybuffer',
-                headers: {
-                    'User-Agent': USER_AGENT,
-                    'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, */*',
-                },
-                timeout: 30000,
-            });
+            // URL: /api/{modalidade} ou /api/{modalidade}/{concurso}
+            const url = concurso
+                ? `${API_BASE}/${apiSlug}/${concurso}`
+                : `${API_BASE}/${apiSlug}`;
 
-            const buffer = response.data;
-            const workbook = XLSX.read(buffer, { type: 'buffer' });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            const jsonData: any[] = XLSX.utils.sheet_to_json(sheet);
+            console.log(`[${slug}] Fetching: ${url}`);
 
-            // Parse logic specific to Caixa's typical layout
-            // Usually columns: "Concurso", "Data Sorteio", "Bola1", "Bola2"...
-            const draws: LotteryDraw[] = jsonData.map((row: any) => {
-                // Normalize keys slightly if needed or just access directly
-                // Caixa Xlsx usually has "Concurso", "Data Sorteio", "Bola1", ...
+            const response = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+            const data = response.data;
 
-                // Dynamic ball extraction (Bola1, Bola2...)
-                const dezenas: string[] = [];
-                for (let i = 1; i <= 20; i++) { // Max 20 for Lotofacil
-                    const key = `Bola${i}`;
-                    if (row[key] !== undefined && row[key] !== null) {
-                        dezenas.push(String(row[key]).padStart(2, '0'));
-                    }
-                }
-                // Fallback if keys are different like "Bola 1" (space)
-                if (dezenas.length === 0) {
-                    for (let i = 1; i <= 20; i++) {
-                        const key = `Bola ${i}`;
-                        if (row[key] !== undefined && row[key] !== null) {
-                            dezenas.push(String(row[key]).padStart(2, '0'));
-                        }
-                    }
-                }
+            if (!data || !data.numero) {
+                console.warn(`[${slug}] Invalid response`);
+                return null;
+            }
 
-                return {
-                    game,
-                    concurso: row['Concurso'] || row['CONCURSO'],
-                    data: row['Data Sorteio'] || row['DATA_SORTEIO'],
-                    dezenas,
-                    acumulado: (row['Acumulado'] === 'SIM' || row['Acumulado'] === true),
-                };
-            }).filter(d => d.concurso && d.dezenas.length > 0);
+            // Mapear TODOS os campos disponíveis
+            const result: LotteryFullData = {
+                concurso: data.numero,
+                data: data.dataApuracao,
+                tipoJogo: data.tipoJogo,
+                localSorteio: data.localSorteio,
+                nomeMunicipioUFSorteio: data.nomeMunicipioUFSorteio,
 
-            return draws;
-        } catch (error) {
-            console.error(`Error scraping ${game}:`, error);
-            throw error;
+                dezenas: data.listaDezenas || [],
+                dezenasOrdemSorteio: data.dezenasSorteadasOrdemSorteio,
+                dezenasSegundoSorteio: data.listaDezenasSegundoSorteio, // Dupla Sena
+
+                acumulado: !!data.acumulado,
+                valorAcumuladoProximoConcurso: data.valorAcumuladoProximoConcurso,
+                valorAcumuladoConcursoEspecial: data.valorAcumuladoConcursoEspecial,
+                valorAcumuladoConcurso_0_5: data.valorAcumuladoConcurso_0_5,
+                valorSaldoReservaGarantidora: data.valorSaldoReservaGarantidora,
+
+                numeroConcursoProximo: data.numeroConcursoProximo,
+                dataProximoConcurso: data.dataProximoConcurso,
+                valorEstimadoProximoConcurso: data.valorEstimadoProximoConcurso,
+
+                valorArrecadado: data.valorArrecadado,
+
+                listaRateioPremio: data.listaRateioPremio?.map((p: any) => ({
+                    faixa: p.faixa,
+                    descricaoFaixa: p.descricaoFaixa,
+                    numeroDeGanhadores: p.numeroDeGanhadores,
+                    valorPremio: p.valorPremio
+                })),
+                valorTotalPremioFaixaUm: data.valorTotalPremioFaixaUm,
+
+                // Extras específicos por jogo
+                timeCoracao: data.nomeTimeCoracaoMesSorte?.trim() || undefined,
+                mesSorte: data.nomeTimeCoracaoMesSorte?.trim() || undefined,
+                trevos: data.listaTrevosSorteados,
+
+                observacao: data.observacao,
+                indicadorConcursoEspecial: data.indicadorConcursoEspecial
+            };
+
+            return result;
+
+        } catch (e: any) {
+            console.error(`[${slug}] Fetch error: ${e.message}`);
+            return null;
         }
     }
 
-    static async syncToFirestore(game: string) {
-        const draws = await this.fetchAndParse(game);
-        console.log(`Parsed ${draws.length} draws for ${game}. Syncing to Firestore...`);
+    // Salva sorteio no Firestore
+    static async saveDraw(slug: string, draw: LotteryFullData): Promise<boolean> {
+        try {
+            const dbName = DB_NAMES[slug];
+            if (!dbName) return false;
 
-        // Batched writes (max 500 per batch)
-        const batchSize = 400; // Safe margin
-        const chunks = [];
-        for (let i = 0; i < draws.length; i += batchSize) {
-            chunks.push(draws.slice(i, i + batchSize));
+            const sanitize = (val: any) => (val === undefined || val === null || val === '') ? null : val;
+
+            // Limpar campo com caracteres null
+            const cleanTimeCoracao = draw.timeCoracao?.replace(/\u0000/g, '').trim() || null;
+
+            const docData = {
+                concurso: draw.concurso,
+                data: draw.data,
+                tipoJogo: sanitize(draw.tipoJogo),
+                localSorteio: sanitize(draw.localSorteio),
+                nomeMunicipioUFSorteio: sanitize(draw.nomeMunicipioUFSorteio),
+
+                dezenas: draw.dezenas || [],
+                dezenasOrdemSorteio: sanitize(draw.dezenasOrdemSorteio),
+                dezenasSegundoSorteio: sanitize(draw.dezenasSegundoSorteio),
+
+                acumulado: draw.acumulado,
+                valorAcumuladoProximoConcurso: sanitize(draw.valorAcumuladoProximoConcurso),
+                valorAcumuladoConcursoEspecial: sanitize(draw.valorAcumuladoConcursoEspecial),
+                valorAcumuladoConcurso_0_5: sanitize(draw.valorAcumuladoConcurso_0_5),
+                valorSaldoReservaGarantidora: sanitize(draw.valorSaldoReservaGarantidora),
+
+                numeroConcursoProximo: sanitize(draw.numeroConcursoProximo),
+                dataProximoConcurso: sanitize(draw.dataProximoConcurso),
+                valorEstimadoProximoConcurso: sanitize(draw.valorEstimadoProximoConcurso),
+
+                valorArrecadado: sanitize(draw.valorArrecadado),
+
+                listaRateioPremio: draw.listaRateioPremio || [],
+                valorTotalPremioFaixaUm: sanitize(draw.valorTotalPremioFaixaUm),
+
+                timeCoracao: cleanTimeCoracao,
+                mesSorte: cleanTimeCoracao,
+                trevos: sanitize(draw.trevos),
+
+                observacao: sanitize(draw.observacao),
+                indicadorConcursoEspecial: sanitize(draw.indicadorConcursoEspecial),
+
+                updatedAt: Timestamp.now()
+            };
+
+            const drawRef = doc(db, 'games', dbName, 'draws', String(draw.concurso));
+            await setDoc(drawRef, docData, { merge: true });
+
+            return true;
+        } catch (e: any) {
+            console.error(`[${slug}] Save error: ${e.message}`);
+            return false;
+        }
+    }
+
+    // Atualiza metadados do jogo (para exibição rápida)
+    static async updateMetadata(slug: string, draw: LotteryFullData): Promise<void> {
+        const dbName = DB_NAMES[slug];
+        if (!dbName) return;
+
+        try {
+            const sanitize = (val: any) => (val === undefined || val === null) ? null : val;
+
+            // Calcular prêmio principal (faixa 1)
+            let premioPrincipal = draw.valorTotalPremioFaixaUm || 0;
+            let ganhadores = 0;
+
+            if (draw.listaRateioPremio && draw.listaRateioPremio.length > 0) {
+                const faixa1 = draw.listaRateioPremio.find(p => p.faixa === 1);
+                if (faixa1) {
+                    if (faixa1.valorPremio > 0) premioPrincipal = faixa1.valorPremio;
+                    ganhadores = faixa1.numeroDeGanhadores;
+                }
+            }
+
+            const metaData = {
+                // Último sorteio
+                latestConcurso: draw.concurso,
+                latestDate: draw.data,
+                latestDezenas: draw.dezenas,
+                latestDezenasSegundoSorteio: sanitize(draw.dezenasSegundoSorteio),
+                latestAcumulado: draw.acumulado,
+                latestPremioPrincipal: premioPrincipal,
+                latestGanhadores: ganhadores,
+                latestArrecadacao: sanitize(draw.valorArrecadado),
+
+                // Próximo sorteio
+                nextConcurso: sanitize(draw.numeroConcursoProximo),
+                nextDate: sanitize(draw.dataProximoConcurso),
+                nextPrize: sanitize(draw.valorEstimadoProximoConcurso),
+
+                // Acumulados
+                acumuladoProximo: sanitize(draw.valorAcumuladoProximoConcurso),
+                acumuladoMegaVirada: sanitize(draw.valorAcumuladoConcursoEspecial),
+
+                // Premiações completas
+                listaRateioPremio: draw.listaRateioPremio || [],
+
+                updatedAt: Timestamp.now()
+            };
+
+            const metaRef = doc(db, 'games', dbName);
+            await setDoc(metaRef, metaData, { merge: true });
+
+        } catch (e: any) {
+            console.error(`[${slug}] Metadata error: ${e.message}`);
+        }
+    }
+
+    // Sincroniza o último sorteio
+    static async syncLatest(slug: string): Promise<{ success: boolean; concurso?: number; error?: string }> {
+        const draw = await this.fetchDraw(slug);
+
+        if (!draw) {
+            return { success: false, error: 'Failed to fetch draw' };
         }
 
-        let totalSaved = 0;
+        const saved = await this.saveDraw(slug, draw);
+        if (!saved) {
+            return { success: false, error: 'Failed to save draw' };
+        }
 
-        for (const chunk of chunks) {
-            const batch = writeBatch(db);
-            chunk.forEach(draw => {
-                const docRef = doc(db, 'games', game, 'draws', String(draw.concurso));
-                batch.set(docRef, {
-                    ...draw,
-                    updatedAt: Timestamp.now()
-                }, { merge: true });
+        await this.updateMetadata(slug, draw);
+
+        return { success: true, concurso: draw.concurso };
+    }
+
+    // Sincroniza histórico (últimos N concursos)
+    static async syncHistory(slug: string, count: number = 100): Promise<{ success: boolean; saved: number; error?: string }> {
+        const latest = await this.fetchDraw(slug);
+        if (!latest) {
+            return { success: false, saved: 0, error: 'Failed to fetch latest' };
+        }
+
+        const latestConcurso = latest.concurso;
+        let saved = 0;
+
+        await this.saveDraw(slug, latest);
+        await this.updateMetadata(slug, latest);
+        saved++;
+
+        for (let i = 1; i < count; i++) {
+            const concursoNum = latestConcurso - i;
+            if (concursoNum <= 0) break;
+
+            const draw = await this.fetchDraw(slug, concursoNum);
+            if (draw) {
+                await this.saveDraw(slug, draw);
+                saved++;
+            }
+
+            // Delay para não sobrecarregar a API
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        return { success: true, saved };
+    }
+
+    // Buscar estatísticas do banco local
+    static async getStats(slug: string, limit_count: number = 100): Promise<{
+        frequencia: Record<string, number>;
+        ultimosResultados: string[][];
+    }> {
+        const dbName = DB_NAMES[slug];
+        if (!dbName) return { frequencia: {}, ultimosResultados: [] };
+
+        try {
+            const drawsRef = collection(db, 'games', dbName, 'draws');
+            const q = query(drawsRef, orderBy('concurso', 'desc'), limit(limit_count));
+            const snapshot = await getDocs(q);
+
+            const frequencia: Record<string, number> = {};
+            const ultimosResultados: string[][] = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const dezenas = data.dezenas || [];
+
+                ultimosResultados.push(dezenas);
+
+                dezenas.forEach((d: string) => {
+                    frequencia[d] = (frequencia[d] || 0) + 1;
+                });
             });
-            await batch.commit();
-            totalSaved += chunk.length;
-            console.log(`Saved batch of ${chunk.length} draws.`);
-        }
 
-        console.log(`Finished syncing ${totalSaved} draws for ${game}.`);
-        return totalSaved;
+            return { frequencia, ultimosResultados };
+
+        } catch (e) {
+            return { frequencia: {}, ultimosResultados: [] };
+        }
     }
 }

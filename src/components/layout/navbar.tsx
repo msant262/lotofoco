@@ -2,27 +2,57 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Target } from 'lucide-react';
+import { Target, ChevronDown, Menu } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { LOTTERIES } from '@/lib/config/lotteries';
 
 export function Navbar() {
+    const games = Object.values(LOTTERIES);
+
     return (
         <nav className="fixed top-0 w-full z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-md supports-[backdrop-filter]:bg-slate-950/60">
-            <div className="container flex h-16 items-center justify-between px-6 max-w-6xl mx-auto">
+            <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-6">
                 {/* Logo */}
                 <Link href="/" className="flex items-center space-x-2 transition-opacity hover:opacity-90">
                     <div className="bg-emerald-500/20 p-1.5 rounded-lg border border-emerald-500/30">
                         <Target className="h-5 w-5 text-emerald-400" />
                     </div>
-                    <span className="text-xl font-bold tracking-tight text-white">
+                    <span className="text-xl font-bold tracking-tight text-white hidden sm:inline-block">
                         Loto<span className="text-emerald-400">Foco</span>
                     </span>
                 </Link>
 
                 {/* Desktop Nav */}
-                <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
-                    <Link href="#como-funciona" className="hover:text-emerald-400 transition-colors">Como Funciona</Link>
+                <div className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
+
+                    {/* Games Warning Dropdown */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1 hover:text-white outline-none">
+                            Loterias <ChevronDown className="w-4 h-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="bg-slate-900 border-slate-800 text-slate-200 w-48">
+                            <DropdownMenuItem asChild className="focus:bg-yellow-900/40 focus:text-yellow-400 cursor-pointer border-b border-white/10 mb-1">
+                                <Link href="/mega-da-virada" className="flex items-center gap-2 font-bold text-yellow-500">
+                                    <span>✨</span> Mega da Virada
+                                </Link>
+                            </DropdownMenuItem>
+                            {games.map((game) => (
+                                <DropdownMenuItem key={game.slug} asChild className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                                    <Link href={`/apostas/${game.slug}`}>
+                                        {game.name}
+                                    </Link>
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
                     <Link href="/estatisticas" className="hover:text-emerald-400 transition-colors">Estatísticas</Link>
-                    <Link href="#planos" className="hover:text-emerald-400 transition-colors">Planos</Link>
+                    <Link href="/pricing" className="hover:text-emerald-400 transition-colors">Planos</Link>
                 </div>
 
                 {/* CTA */}
@@ -35,6 +65,11 @@ export function Navbar() {
                             Criar Conta
                         </Button>
                     </Link>
+
+                    {/* Mobile Menu Trigger (Visual only for now) */}
+                    <Button variant="ghost" size="icon" className="md:hidden text-slate-300">
+                        <Menu className="w-6 h-6" />
+                    </Button>
                 </div>
             </div>
         </nav>

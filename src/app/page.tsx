@@ -19,7 +19,6 @@ const TEASER_DATA = [
 export default function Home() {
   return (
     <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 overflow-x-hidden pt-16 font-sans">
-      <Navbar />
 
       {/* 1. Hero Section */}
       <section className="relative h-[calc(100vh-4rem)] flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/20 via-slate-950 to-slate-950">

@@ -30,6 +30,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { Navbar } from "@/components/layout/navbar";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -44,6 +46,7 @@ export default function RootLayout({
           outfit.variable
         )}
       >
+        <Navbar />
         {children}
       </body>
     </html>
