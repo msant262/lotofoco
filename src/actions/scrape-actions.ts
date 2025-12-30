@@ -103,7 +103,7 @@ async function saveDraw(slug: string, draw: DrawData): Promise<boolean> {
 
         // Remove undefined values
         Object.keys(docData).forEach(key => {
-            if (docData[key] === undefined) docData[key] = null;
+            if ((docData as any)[key] === undefined) (docData as any)[key] = null;
         });
 
         const drawRef = doc(db, 'games', dbName, 'draws', String(draw.concurso));
