@@ -3,11 +3,10 @@ import GamePageClient from './GamePageClient';
 export const runtime = 'edge';
 
 interface PageProps {
-    params: {
-        gameSlug: string;
-    };
+    params: any;
 }
 
-export default function GamePage({ params }: PageProps) {
-    return <GamePageClient gameSlug={params.gameSlug} />;
+export default async function GamePage({ params }: PageProps) {
+    const { gameSlug } = await params;
+    return <GamePageClient gameSlug={gameSlug} />;
 }
