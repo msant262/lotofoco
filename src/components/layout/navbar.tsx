@@ -37,13 +37,13 @@ export function Navbar() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="bg-slate-900 border-slate-800 text-slate-200 w-48">
                             <DropdownMenuItem asChild className="focus:bg-yellow-900/40 focus:text-yellow-400 cursor-pointer border-b border-white/10 mb-1">
-                                <Link href="/mega-da-virada" className="flex items-center gap-2 font-bold text-yellow-500">
+                                <Link href="/mega-da-virada" className="flex items-center gap-2 font-bold text-yellow-500" prefetch={false}>
                                     <span>✨</span> Mega da Virada
                                 </Link>
                             </DropdownMenuItem>
                             {games.map((game) => (
                                 <DropdownMenuItem key={game.slug} asChild className="focus:bg-slate-800 focus:text-white cursor-pointer">
-                                    <Link href={`/apostas/${game.slug}`}>
+                                    <Link href={`/apostas/${game.slug}`} prefetch={false}>
                                         {game.name}
                                     </Link>
                                 </DropdownMenuItem>
@@ -51,16 +51,16 @@ export function Navbar() {
                         </DropdownMenuContent>
                     </DropdownMenu>
 
-                    <Link href="/estatisticas" className="hover:text-emerald-400 transition-colors">Estatísticas</Link>
-                    <Link href="/pricing" className="hover:text-emerald-400 transition-colors">Planos</Link>
+                    <Link href="/estatisticas" className="hover:text-emerald-400 transition-colors" prefetch={false}>Estatísticas</Link>
+                    <Link href="/pricing" className="hover:text-emerald-400 transition-colors" prefetch={false}>Planos</Link>
                 </div>
 
                 {/* CTA */}
                 <div className="flex items-center gap-4">
-                    <Link href="#" className="hidden md:block text-sm font-medium text-slate-300 hover:text-white">
+                    <Link href="#" className="hidden md:block text-sm font-medium text-slate-300 hover:text-white" prefetch={false}>
                         Entrar
                     </Link>
-                    <Link href="/pricing">
+                    <Link href="/pricing" prefetch={false}>
                         <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-500/20">
                             Criar Conta
                         </Button>
