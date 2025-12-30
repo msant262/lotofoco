@@ -148,11 +148,38 @@ export async function getDrawDetails(slug: string, concurso: number) {
         const drawDoc = await getDoc(drawRef);
 
         if (drawDoc.exists()) {
-            return drawDoc.data();
+            const data = drawDoc.data();
+
+            // Serializar para remover objetos Timestamp que não podem ser passados para Client Components
+            return {
+                concurso: data.concurso,
+                data: data.data,
+                dezenas: data.dezenas || [],
+                dezenasSegundoSorteio: data.dezenasSegundoSorteio || null,
+                acumulado: data.acumulado || false,
+                valorArrecadado: data.valorArrecadado || null,
+                listaRateioPremio: data.listaRateioPremio?.map((p: any) => ({
+                    faixa: p.faixa,
+                    descricaoFaixa: p.descricaoFaixa,
+                    numeroDeGanhadores: p.numeroDeGanhadores,
+                    valorPremio: p.valorPremio
+                })) || [],
+                listaMunicipioUFGanhadores: data.listaMunicipioUFGanhadores?.map((c: any) => ({
+                    ganhadores: c.ganhadores || 1,
+                    municipio: c.municipio || 'N/A',
+                    uf: c.uf || 'N/A'
+                })) || [],
+                localSorteio: data.localSorteio || null,
+                nomeMunicipioUFSorteio: data.nomeMunicipioUFSorteio || null,
+                valorEstimadoProximoConcurso: data.valorEstimadoProximoConcurso || null,
+                valorAcumuladoProximoConcurso: data.valorAcumuladoProximoConcurso || null,
+                observacao: data.observacao || null
+            };
         }
 
         return null;
     } catch (e) {
+        console.error('Error fetching draw details:', e);
         return null;
     }
 }
