@@ -1,7 +1,17 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { User, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "firebase/auth";
+import {
+    User,
+    onAuthStateChanged,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
+    signOut,
+    setPersistence,
+    browserLocalPersistence,
+} from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 interface AuthContextType {
@@ -26,16 +36,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isAdmin, setIsAdmin] = useState(false);
 
     useEffect(() => {
+        // garante persistência (evita “logou e sumiu”)
+        setPersistence(auth, browserLocalPersistence).catch(console.error);
+
+        // tenta processar retorno do redirect (se algum dia você usar)
+        getRedirectResult(auth).catch(() => { });
+    }, []);
+
+    useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
 
-            // Check if user is admin based on email
             const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
-            if (currentUser && adminEmail && currentUser.email === adminEmail) {
-                setIsAdmin(true);
-            } else {
-                setIsAdmin(false);
-            }
+            setIsAdmin(!!(currentUser && adminEmail && currentUser.email === adminEmail));
 
             setLoading(false);
         });
@@ -43,19 +56,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribe();
     }, []);
 
-    useEffect(() => {
-        // Handle redirect result on load
-        getRedirectResult(auth).catch((error) => {
-            console.error("Error confirming redirect sign in", error);
-        });
-    }, []);
-
     const signInWithGoogle = async () => {
+        const provider = new GoogleAuthProvider();
+
         try {
-            const provider = new GoogleAuthProvider();
-            await signInWithRedirect(auth, provider);
-        } catch (error) {
-            console.error("Error signing in with Google", error);
+            // popup como padrão (resolve seu loop)
+            await signInWithPopup(auth, provider);
+        } catch (err: any) {
+            // fallback: se popup bloqueado, tenta redirect
+            if (err?.code === "auth/popup-blocked" || err?.code === "auth/popup-closed-by-user") {
+                await signInWithRedirect(auth, provider);
+                return;
+            }
+            console.error("Error signing in with Google", err);
         }
     };
 
