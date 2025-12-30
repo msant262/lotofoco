@@ -8,7 +8,7 @@ const outfit = Outfit({ subsets: ["latin"], variable: "--font-heading" });
 
 export const metadata: Metadata = {
   title: "LotoFoco - Inteligência Artificial para Loterias",
-  description: "Aumente suas chances com estatísticas avançadas e palpites gerados por IA (Gemini 1.5 Flash).",
+  description: "Aumente suas chances com estatísticas avançadas e palpites gerados por IA Avançada.",
   icons: {
     icon: "/favicon.ico",
   },
@@ -32,6 +32,8 @@ export const metadata: Metadata = {
 
 import { Navbar } from "@/components/layout/navbar";
 
+import { AuthProvider } from "@/components/providers/auth-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -46,8 +48,10 @@ export default function RootLayout({
           outfit.variable
         )}
       >
-        <Navbar />
-        {children}
+        <AuthProvider>
+          <Navbar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

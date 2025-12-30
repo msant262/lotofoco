@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { syncLatestDraw, syncHistoryDraws } from '@/actions/scrape-actions';
 import anime from 'animejs';
+import { useAuth } from '@/components/providers/auth-provider';
 
 const GAMES = [
     { slug: 'mega-sena', name: 'Mega-Sena', color: '#209869', icon: '🍀', range: 60, pick: 6 },
@@ -72,13 +73,18 @@ interface LogEntry {
 }
 
 export default function AdminPage() {
+    const { user, loading, isAdmin, signInWithGoogle, logout } = useAuth();
+    const [isPending, startTransition] = useTransition();
+
+    // ─────────────────────────────────────────────────────────────
+    // HOOKS (Must be declared before any conditional return)
+    // ─────────────────────────────────────────────────────────────
     const [gameStatuses, setGameStatuses] = useState<Record<string, GameStatus>>({});
     const [globalProgress, setGlobalProgress] = useState<{ current: number; total: number } | null>(null);
     const [currentGame, setCurrentGame] = useState<string | null>(null);
     const [historyCount, setHistoryCount] = useState(50);
     const [lastDuration, setLastDuration] = useState<number | null>(null);
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [isPending, startTransition] = useTransition();
     const [stats, setStats] = useState({ synced: 0, errors: 0, total: 0 });
     const [selectedGame, setSelectedGame] = useState<typeof GAMES[0] | null>(null);
     const [showApiDocs, setShowApiDocs] = useState(false);
@@ -86,9 +92,12 @@ export default function AdminPage() {
     const headerRef = useRef<HTMLDivElement>(null);
     const cardsRef = useRef<HTMLDivElement>(null);
 
-    // Animação de entrada
+    // Animação de entrada - Trigger when admin view is revealed
     useEffect(() => {
-        if (headerRef.current) {
+        if (isAdmin && headerRef.current) {
+            // Reset opacity manually to ensure animation plays if re-rendering
+            headerRef.current.querySelectorAll('.animate-in').forEach((el: any) => el.style.opacity = '0');
+
             anime({
                 targets: headerRef.current.querySelectorAll('.animate-in'),
                 translateY: [30, 0],
@@ -98,7 +107,9 @@ export default function AdminPage() {
                 easing: 'easeOutExpo'
             });
         }
-        if (cardsRef.current) {
+        if (isAdmin && cardsRef.current) {
+            cardsRef.current.querySelectorAll('.game-card').forEach((el: any) => el.style.opacity = '0');
+
             anime({
                 targets: cardsRef.current.querySelectorAll('.game-card'),
                 translateY: [50, 0],
@@ -108,13 +119,72 @@ export default function AdminPage() {
                 easing: 'easeOutExpo'
             });
         }
-    }, []);
+    }, [isAdmin, loading]); // Added dependencies
 
     useEffect(() => {
         const synced = Object.values(gameStatuses).filter(s => s.status === 'success').length;
         const errors = Object.values(gameStatuses).filter(s => s.status === 'error').length;
         setStats({ synced, errors, total: GAMES.length });
     }, [gameStatuses]);
+
+    // ─────────────────────────────────────────────────────────────
+    // AUTH VERIFICATION
+    // ─────────────────────────────────────────────────────────────
+
+    // Verification View
+    if (loading) return (
+        <div className="flex h-screen items-center justify-center bg-slate-950 text-emerald-500">
+            <div className="flex flex-col items-center gap-4">
+                <Loader2 className="animate-spin w-10 h-10" />
+                <span className="text-sm font-medium tracking-widest uppercase opacity-70">Verificando Credenciais...</span>
+            </div>
+        </div>
+    );
+
+    if (!user || !isAdmin) {
+        return (
+            <div className="flex flex-col h-screen items-center justify-center bg-slate-950 text-white space-y-8 p-6 animate-fade-in text-center">
+                <div className="relative">
+                    <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse" />
+                    <Shield className="w-24 h-24 text-red-500 relative z-10" />
+                </div>
+
+                <div className="space-y-4 max-w-md">
+                    <h1 className="text-4xl font-bold tracking-tight">Área Restrita</h1>
+                    <p className="text-slate-400 text-lg leading-relaxed">
+                        Este painel é exclusivo para administração do sistema LotoFoco.
+                    </p>
+                </div>
+
+                {!user ? (
+                    <Button onClick={signInWithGoogle} size="lg" className="bg-white text-slate-950 hover:bg-slate-200 font-bold gap-3 h-14 px-8 shadow-xl shadow-white/10 transition-all hover:scale-105">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="Google" />
+                        Acessar Painel
+                    </Button>
+                ) : (
+                    <div className="flex flex-col items-center gap-6 w-full max-w-sm">
+                        <div className="w-full bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center space-y-2">
+                            <div className="text-red-400 font-semibold flex items-center justify-center gap-2">
+                                <XCircle className="w-5 h-5" /> Acesso Negado
+                            </div>
+                            <p className="text-slate-300 text-sm">
+                                A conta <span className="text-white font-mono bg-slate-900 px-1 py-0.5 rounded">{user.email}</span> não possui permissão de administrador.
+                            </p>
+                        </div>
+                        <Button variant="outline" onClick={logout} className="w-full border-slate-700 hover:bg-slate-800 text-slate-300">
+                            Sair e tentar outra conta
+                        </Button>
+                    </div>
+                )}
+
+                <div className="fixed bottom-8 text-xs text-slate-600">
+                    ID de Segurança: {Math.random().toString(36).substring(7).toUpperCase()} • IP Registrado
+                </div>
+            </div>
+        );
+    }
+
+    // Functions (Logic)
 
     const addLog = (type: LogEntry['type'], message: string) => {
         const time = new Date().toLocaleTimeString('pt-BR');

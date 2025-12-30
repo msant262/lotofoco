@@ -34,7 +34,7 @@ export default function PricingPage() {
                                 <span className="text-slate-500">/ geração</span>
                             </div>
                             <ul className="space-y-2 text-sm text-slate-300">
-                                <li className="flex items-center"><Check className="w-4 h-4 mr-2 text-emerald-500" /> Acesso ao Gemini 1.5 Flash</li>
+                                <li className="flex items-center"><Check className="w-4 h-4 mr-2 text-emerald-500" /> Acesso à IA de Ponta</li>
                                 <li className="flex items-center"><Check className="w-4 h-4 mr-2 text-emerald-500" /> Histórico básico (10 últimos)</li>
                                 <li className="flex items-center"><Check className="w-4 h-4 mr-2 text-emerald-500" /> Sem expiração de créditos</li>
                             </ul>

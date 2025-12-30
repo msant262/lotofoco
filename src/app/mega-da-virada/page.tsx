@@ -121,7 +121,7 @@ export default function MegaViradaPage() {
                     <div className="flex flex-col md:flex-row items-center justify-between gap-8 mb-12">
                         <div className="text-center md:text-left">
                             <h2 className="text-2xl font-bold text-white">Gerar Palpite Premium</h2>
-                            <p className="text-zinc-400">Nossa IA Gemini analisa padrões históricos.</p>
+                            <p className="text-zinc-400">Nossa IA analisa padrões históricos.</p>
                         </div>
 
                         <div className="flex items-center gap-4 bg-black/50 p-2 rounded-xl border border-zinc-800">
@@ -138,7 +138,7 @@ export default function MegaViradaPage() {
                             disabled={isPending}
                             className="w-full md:w-2/3 h-20 text-2xl font-bold rounded-2xl bg-gradient-to-r from-yellow-500 via-amber-500 to-yellow-600 hover:scale-105 transition-transform text-black shadow-[0_0_50px_-10px_rgba(234,179,8,0.5)] border-0"
                         >
-                            {isPending ? 'Consultando IA Gemini...' : 'Revelar Números da Sorte'}
+                            {isPending ? 'Consultando IA Avançada...' : 'Revelar Números da Sorte'}
                         </Button>
                     </div>
 
