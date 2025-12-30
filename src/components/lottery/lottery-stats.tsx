@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { LotteryConfig } from '@/lib/config/lotteries';
 import { cn } from '@/lib/utils';
 import { TrendingUp, Award, Loader2, Database } from 'lucide-react';
-import { getGameStats, StatsData } from '@/actions/get-game-stats';
+import { getStatsClient, StatsData } from '@/lib/firebase/games-client';
 
 interface LotteryStatsProps {
     config: LotteryConfig;
@@ -24,7 +24,7 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
             setLoading(true);
             setError(null);
             try {
-                const data = await getGameStats(config.slug, 100);
+                const data = await getStatsClient(config.slug, 100);
                 setStats(data);
                 if (!data) {
                     setError('Sem dados históricos. Execute o scraping primeiro.');

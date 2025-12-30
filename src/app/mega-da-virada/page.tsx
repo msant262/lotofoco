@@ -3,11 +3,8 @@
 import { useState, useTransition, useEffect } from 'react';
 import { LotteryBallGrid } from '@/components/lottery/lottery-ball-grid';
 import { Button } from '@/components/ui/button';
-// Imports removed
-// import { generatePrediction } from '@/actions/generate-prediction';
-// import { getLotteryInfo } from '@/actions/get-lottery-info';
 import { Save, Copy, Star, TrendingUp, Users, Calendar } from 'lucide-react';
-import { formatCurrency } from '@/lib/lottery-utils';
+import { getLotteryInfoClient } from '@/lib/firebase/games-client';
 
 const MEGA_VIRADA_CONFIG = {
     slug: 'mega-sena',
@@ -40,10 +37,9 @@ export default function MegaViradaPage() {
     useEffect(() => {
         async function fetchData() {
             try {
-                // Buscar info da Mega da Virada (já inclui o prêmio correto)
-                const res = await fetch('/api/lottery-info?slug=mega-da-virada');
-                const info = await res.json();
-                if (info && !info.error) setLotteryInfo(info);
+                // Use client-side fetching to avoid Edge API issues
+                const info = await getLotteryInfoClient('mega-da-virada');
+                if (info) setLotteryInfo(info as any);
             } catch (e) {
                 console.error('Error fetching lottery info', e);
             }

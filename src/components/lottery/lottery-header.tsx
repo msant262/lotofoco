@@ -4,9 +4,8 @@ import { LotteryConfig } from "@/lib/config/lotteries";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
-// import { getLotteryInfo } from "@/actions/get-lottery-info"; // Removed to fix POST issue
+import { getLotteryInfoClient } from "@/lib/firebase/games-client";
 
 interface LotteryHeaderProps {
     config: LotteryConfig;
@@ -16,13 +15,9 @@ export function LotteryHeader({ config }: LotteryHeaderProps) {
     const [info, setInfo] = useState<{ prize: string; contest: string; date: string } | null>(null);
 
     useEffect(() => {
-        // Fetch real data on mount via API (no server action POST)
-        fetch(`/api/lottery-info?slug=${config.slug}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data && !data.error) setInfo(data);
-            })
-            .catch(err => console.error("Failed to fetch info", err));
+        getLotteryInfoClient(config.slug).then(data => {
+            if (data) setInfo(data);
+        });
     }, [config.slug]);
 
     const style = {

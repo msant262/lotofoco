@@ -4,14 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ResponsiveBar } from '@nivo/bar';
-// Imports updated
-// import { getGameStats, StatsData } from '@/actions/get-game-stats';
-// import { getDrawDetails } from '@/actions/get-lottery-info';
 import { LOTTERIES } from '@/lib/config/lotteries';
 import { Loader2, Database, TrendingUp, TrendingDown, Filter, BarChart3, Calendar, Hash, ChevronDown, ChevronUp, Lock, Sparkles, Crown, Flame, Snowflake, Percent, Sigma, Layers, Target, X, Zap, Clock, Repeat, Trophy, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/lib/lottery-utils';
 import Link from 'next/link';
+import { getStatsClient, getDrawDetailsClient, StatsData, DrawDetails } from '@/lib/firebase/games-client';
 
 const GAMES = [
     { slug: 'mega-sena', name: 'Mega-Sena', color: '#209869' },
@@ -24,39 +22,6 @@ const GAMES = [
     { slug: 'super-sete', name: 'Super Sete', color: '#BEDC00' },
     { slug: 'mais-milionaria', name: '+Milionária', color: '#003758' },
 ];
-
-// Types
-interface FrequencyData {
-    number: string;
-    frequency: number;
-}
-
-interface StatsData {
-    frequencia: FrequencyData[];
-    ultimosResultados: {
-        concurso: number;
-        data: string;
-        dezenas: string[];
-        acumulado: boolean;
-    }[];
-    totalConcursos: number;
-    maisFrequentes: string[];
-    menosFrequentes: string[];
-    mediaAtraso: Record<string, number>;
-    parImpar: { pares: number; impares: number };
-}
-
-interface DrawDetails {
-    concurso: number;
-    data: string;
-    dezenas: string[];
-    acumulado: boolean;
-    valorArrecadado?: number;
-    listaRateioPremio?: { faixa: number; descricaoFaixa: string; numeroDeGanhadores: number; valorPremio: number; }[];
-    localSorteio?: string;
-    nomeMunicipioUFSorteio?: string;
-    listaMunicipioUFGanhadores?: { ganhadores: number; municipio: string; uf: string; }[];
-}
 
 export default function EstatisticasPage() {
     const [selectedGame, setSelectedGame] = useState('mega-sena');
@@ -81,10 +46,10 @@ export default function EstatisticasPage() {
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch(`/api/stats?slug=${selectedGame}&count=${period}`);
-                const data = await res.json();
+                // Using client-side SDK directly instead of Edge API
+                const data = await getStatsClient(selectedGame, period);
 
-                if (!res.ok || !data || data.error) setError('Sem dados históricos. Execute o scraping primeiro.');
+                if (!data) setError('Sem dados históricos. Execute o scraping primeiro.');
                 else setStats(data);
             } catch (e) {
                 setError('Erro ao carregar estatísticas');
@@ -160,9 +125,9 @@ export default function EstatisticasPage() {
         setExpandedConcurso(concurso);
         setLoadingDetails(true);
         try {
-            const res = await fetch(`/api/lottery-info?slug=${selectedGame}&concurso=${concurso}`);
-            const details = await res.json();
-            setDrawDetails(details as DrawDetails);
+            // Use client SDK directly
+            const details = await getDrawDetailsClient(selectedGame, concurso);
+            setDrawDetails(details);
         } catch (e) {
             console.error('Error fetching draw details', e);
         }
