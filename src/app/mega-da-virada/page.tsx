@@ -3,8 +3,9 @@
 import { useState, useTransition, useEffect } from 'react';
 import { LotteryBallGrid } from '@/components/lottery/lottery-ball-grid';
 import { Button } from '@/components/ui/button';
-import { generatePrediction } from '@/actions/generate-prediction';
-import { getLotteryInfo } from '@/actions/get-lottery-info';
+// Imports removed
+// import { generatePrediction } from '@/actions/generate-prediction';
+// import { getLotteryInfo } from '@/actions/get-lottery-info';
 import { Save, Copy, Star, TrendingUp, Users, Calendar } from 'lucide-react';
 import { formatCurrency } from '@/lib/lottery-utils';
 
@@ -40,8 +41,9 @@ export default function MegaViradaPage() {
         async function fetchData() {
             try {
                 // Buscar info da Mega da Virada (já inclui o prêmio correto)
-                const info = await getLotteryInfo('mega-da-virada');
-                setLotteryInfo(info);
+                const res = await fetch('/api/lottery-info?slug=mega-da-virada');
+                const info = await res.json();
+                if (info && !info.error) setLotteryInfo(info);
             } catch (e) {
                 console.error('Error fetching lottery info', e);
             }
@@ -54,10 +56,25 @@ export default function MegaViradaPage() {
         setPrediction([]);
         startTransition(async () => {
             await new Promise(r => setTimeout(r, 1000));
-            const result = await generatePrediction('demo-user', 'Mega da Virada', quantity, 0, []);
-            if (result && result.numbers) {
-                setPrediction(result.numbers);
-                setHasRevealed(true);
+            try {
+                const response = await fetch('/api/prediction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: 'demo-user',
+                        game: 'Mega da Virada',
+                        quantity,
+                        extraQuantity: 0,
+                        fixedNumbers: []
+                    })
+                });
+                const result = await response.json();
+                if (result && result.numbers) {
+                    setPrediction(result.numbers);
+                    setHasRevealed(true);
+                }
+            } catch (err) {
+                console.error("Prediction failed", err);
             }
         });
     };

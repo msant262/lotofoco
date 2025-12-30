@@ -4,8 +4,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ResponsiveBar } from '@nivo/bar';
-import { getGameStats, StatsData } from '@/actions/get-game-stats';
-import { getDrawDetails } from '@/actions/get-lottery-info';
+// Imports updated
+// import { getGameStats, StatsData } from '@/actions/get-game-stats';
+// import { getDrawDetails } from '@/actions/get-lottery-info';
 import { LOTTERIES } from '@/lib/config/lotteries';
 import { Loader2, Database, TrendingUp, TrendingDown, Filter, BarChart3, Calendar, Hash, ChevronDown, ChevronUp, Lock, Sparkles, Crown, Flame, Snowflake, Percent, Sigma, Layers, Target, X, Zap, Clock, Repeat, Trophy, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,27 @@ const GAMES = [
     { slug: 'super-sete', name: 'Super Sete', color: '#BEDC00' },
     { slug: 'mais-milionaria', name: '+Milionária', color: '#003758' },
 ];
+
+// Types
+interface FrequencyData {
+    number: string;
+    frequency: number;
+}
+
+interface StatsData {
+    frequencia: FrequencyData[];
+    ultimosResultados: {
+        concurso: number;
+        data: string;
+        dezenas: string[];
+        acumulado: boolean;
+    }[];
+    totalConcursos: number;
+    maisFrequentes: string[];
+    menosFrequentes: string[];
+    mediaAtraso: Record<string, number>;
+    parImpar: { pares: number; impares: number };
+}
 
 interface DrawDetails {
     concurso: number;
@@ -59,8 +81,10 @@ export default function EstatisticasPage() {
             setLoading(true);
             setError(null);
             try {
-                const data = await getGameStats(selectedGame, period);
-                if (!data) setError('Sem dados históricos. Execute o scraping primeiro.');
+                const res = await fetch(`/api/stats?slug=${selectedGame}&count=${period}`);
+                const data = await res.json();
+
+                if (!res.ok || !data || data.error) setError('Sem dados históricos. Execute o scraping primeiro.');
                 else setStats(data);
             } catch (e) {
                 setError('Erro ao carregar estatísticas');
@@ -136,7 +160,8 @@ export default function EstatisticasPage() {
         setExpandedConcurso(concurso);
         setLoadingDetails(true);
         try {
-            const details = await getDrawDetails(selectedGame, concurso);
+            const res = await fetch(`/api/lottery-info?slug=${selectedGame}&concurso=${concurso}`);
+            const details = await res.json();
             setDrawDetails(details as DrawDetails);
         } catch (e) {
             console.error('Error fetching draw details', e);
@@ -167,6 +192,7 @@ export default function EstatisticasPage() {
             isBottom10: stats.menosFrequentes.includes(num)
         };
     };
+
     const numberDetails = selectedNumber ? getNumberDetails(selectedNumber) : null;
 
     // Chart data

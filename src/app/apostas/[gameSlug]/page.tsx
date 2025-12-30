@@ -13,9 +13,7 @@ import { ResultsDialog } from '@/components/lottery/results-dialog'; // NEW IMPO
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { generatePrediction } from '@/actions/generate-prediction';
-// @ts-ignore
-import { getLotteryInfo } from '@/actions/get-lottery-info';
+// Imports removed
 import { Loader2, Save, Copy, Sparkles, Trash2, Plus, Minus, Layers } from 'lucide-react';
 
 export default function GamePage() {
@@ -102,14 +100,35 @@ export default function GamePage() {
             // Note: In PROD, please create a Bulk Generate Server Action to call AI once.
             // Calling loop here is slow but okay for demo.
             for (let i = 0; i < gamesCount; i++) {
-                const result = await generatePrediction('demo-user', config.name, quantity, extrasNeeded, selectedNumbers);
+                try {
+                    const response = await fetch('/api/prediction', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: 'demo-user',
+                            game: config.name,
+                            quantity,
+                            extraQuantity: extrasNeeded,
+                            fixedNumbers: selectedNumbers
+                        })
+                    });
 
-                if (result && result.numbers) {
-                    const aiMain = result.numbers.slice(0, quantity);
-                    const aiExtras = result.numbers.slice(quantity);
-                    const finalExtras = [...selectedExtras, ...aiExtras].slice(0, extraQuantity);
-                    const finalGame = [...aiMain, ...finalExtras];
-                    generatedGames.push(finalGame);
+                    if (!response.ok) throw new Error('Falha na API');
+
+                    const result = await response.json();
+
+                    if (result && result.numbers) {
+                        const aiMain = result.numbers.slice(0, quantity);
+                        const aiExtras = result.numbers.slice(quantity);
+                        const finalExtras = [...selectedExtras, ...aiExtras].slice(0, extraQuantity);
+                        const finalGame = [...aiMain, ...finalExtras];
+                        generatedGames.push(finalGame);
+                    }
+                } catch (err) {
+                    console.error("Prediction error", err);
+                    // Continue with other games if one fails? Or break?
+                    // Maybe fallback locally if API fails completely?
+                    // The API already has a fallback, so error here means network error.
                 }
             }
 
