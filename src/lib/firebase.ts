@@ -43,3 +43,4 @@ if (typeof window === 'undefined' && typeof navigator === 'undefined') {
 const db = getFirestore(app);
 
 export { app, auth, db };
+
