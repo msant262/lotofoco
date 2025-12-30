@@ -27,6 +27,19 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
+
+// Polyfill para evitar erro "navigator is not defined" no Edge Runtime SSR
+if (typeof window === 'undefined' && typeof navigator === 'undefined') {
+    try {
+        // @ts-ignore
+        global.navigator = {
+            userAgent: 'node',
+        };
+    } catch (e) {
+        // Ignore se não conseguir definir
+    }
+}
+
 const db = getFirestore(app);
 
 export { app, auth, db };
