@@ -1,7 +1,7 @@
 'use server'
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { adminDb } from "@/lib/firebase-admin";
+
 
 const apiKey = process.env.GOOGLE_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey || "mock-key");
@@ -24,7 +24,7 @@ export async function generatePrediction(
     const needed = quantity - fixedNumbers.length;
 
     const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.5-flash",
         generationConfig: { responseMimeType: "application/json" }
     });
 
@@ -45,6 +45,11 @@ export async function generatePrediction(
     `;
 
     try {
+        if (!process.env.GOOGLE_API_KEY) {
+            console.warn("GOOGLE_API_KEY missing, using fallback.");
+            throw new Error("Missing AI Key");
+        }
+
         const result = await model.generateContent(prompt);
         const prediction = JSON.parse(result.response.text());
         return prediction;
