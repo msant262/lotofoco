@@ -53,17 +53,60 @@ async function handleBillingPaid(webhook: any) {
     try {
         const { billing, payment } = webhook.data;
 
-        if (!billing || !billing.customer || !billing.customer.metadata) {
+        console.log('📦 Full webhook data:', JSON.stringify(webhook.data, null, 2));
+
+        if (!billing || !billing.customer) {
             console.error('❌ Invalid webhook data structure');
             return;
         }
 
-        const userId = billing.customer.metadata.userId;
-        const plan = billing.customer.metadata.plan;
-        const duration = parseInt(billing.customer.metadata.duration || '30');
+        // Tentar pegar userId do metadata (se vier da API)
+        let userId = billing.customer.metadata?.userId;
+        let plan = billing.customer.metadata?.plan;
+        const duration = parseInt(billing.customer.metadata?.duration || '30');
+
+        // Se não tem userId no metadata, buscar por email
+        if (!userId) {
+            const customerEmail = billing.customer.email;
+
+            if (!customerEmail) {
+                console.error('❌ No userId in metadata and no customer email');
+                return;
+            }
+
+            console.log('🔍 No userId in metadata, searching by email:', customerEmail);
+
+            // Buscar usuário por email no Firestore
+            const { collection, query, where, getDocs } = await import('firebase/firestore');
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('email', '==', customerEmail));
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                console.error('❌ No user found with email:', customerEmail);
+                return;
+            }
+
+            userId = snapshot.docs[0].id;
+            console.log('✅ Found user by email:', userId);
+
+            // Detectar plano pelo valor pago
+            if (!plan) {
+                const amount = billing.amount;
+                if (amount === 990) {
+                    plan = 'monthly';
+                } else if (amount === 8990) {
+                    plan = 'annual';
+                } else {
+                    console.error('❌ Cannot determine plan from amount:', amount);
+                    return;
+                }
+                console.log('✅ Detected plan from amount:', plan);
+            }
+        }
 
         if (!userId || !plan) {
-            console.error('❌ Missing userId or plan in metadata');
+            console.error('❌ Missing userId or plan after all attempts');
             return;
         }
 

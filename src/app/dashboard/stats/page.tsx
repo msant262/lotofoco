@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import {
     Card,
     CardBody,
@@ -52,7 +52,13 @@ import {
     RotateCcw,
     LayoutDashboard,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    Crown,
+    Lock,
+    Users,
+    Clock,
+    AlertCircle,
+    CheckCircle2
 } from "lucide-react";
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
@@ -74,9 +80,52 @@ export default function StatsPage() {
     const [historyPage, setHistoryPage] = useState(1);
     const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(true);
 
+    // PRO Features State
+    const [isPro, setIsPro] = useState(false);
+    const [showProModal, setShowProModal] = useState(false);
+    const [modalPage, setModalPage] = useState(1);
+
+    // Custom Tabs Animation
+    const cursorRef = useRef<HTMLDivElement>(null);
+    const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+
     useEffect(() => {
-        if (user) { loadData(); }
+        const target = tabRefs.current[statsTab];
+        if (target && cursorRef.current) {
+            anime({
+                targets: cursorRef.current,
+                left: target.offsetLeft,
+                width: target.offsetWidth,
+                opacity: 1,
+                duration: 500,
+                easing: 'spring(1, 80, 12, 0)'
+            });
+        }
+    }, [statsTab]);
+
+    useEffect(() => {
+        if (user) {
+            loadData();
+            checkSubscription();
+        }
     }, [user]);
+
+    const checkSubscription = async () => {
+        if (!user) return;
+        try {
+            const { doc, getDoc } = await import('firebase/firestore');
+            const { db } = await import('@/lib/firebase');
+            const userDoc = await getDoc(doc(db, 'users', user.uid));
+            if (userDoc.exists()) {
+                const data = userDoc.data();
+                // Consider active if plan is monthly/annual OR status is explicitly active
+                const isActive = data.plan === 'monthly' || data.plan === 'annual' || data.subscriptionStatus === 'active';
+                setIsPro(isActive);
+            }
+        } catch (error) {
+            console.error("Error checking subscription:", error);
+        }
+    };
 
     useEffect(() => {
         if (selectedGame !== 'all') {
@@ -369,44 +418,136 @@ export default function StatsPage() {
         };
     }, [bets, selectedGame, viewMode, historyCache]);
 
-    // Derived analysis for the interactive modal
+    // Derived analysis for the interactive modal (Real-time Last 12 Months)
     const numberAnalysis = useMemo(() => {
-        if (!selectedNumberDetail || !stats) return null;
+        if (!selectedNumberDetail || !historicalResults.length) return null;
 
         const nStr = selectedNumberDetail.padStart(2, '0');
-        const freq = (viewMode === 'personal' ? (stats.numberFreq[parseInt(nStr)] || stats.numberFreq[nStr]) : (stats.globalStats?.frequency?.[nStr] || stats.globalStats?.frequency?.[parseInt(nStr)])) || 0;
-        const total = viewMode === 'personal' ? stats.totalGames : (stats.globalStats?.totalHistoryCount || stats.totalGames);
 
-        let delay = 0;
-        if (stats.delayMap) {
-            if (Array.isArray(stats.delayMap)) {
-                // If it's an array of {num, delay} objects
-                const found = (stats.delayMap as any[]).find(d =>
-                    d.num === parseInt(nStr) || d.num.toString().padStart(2, '0') === nStr
-                );
-                delay = found ? found.delay : 0;
-            } else {
-                // If it's a direct lookup object { "01": 5 }
-                delay = (stats.delayMap as any)?.[nStr] || (stats.delayMap as any)?.[parseInt(nStr)] || 0;
+        // 1. Sort History Descending
+        const sortedHistory = [...historicalResults].sort((a, b) => {
+            const dateA = new Date(a.data.split('/').reverse().join('-'));
+            const dateB = new Date(b.data.split('/').reverse().join('-'));
+            return dateB.getTime() - dateA.getTime();
+        });
+
+        // 2. Filter Last 12 Months
+        const now = new Date();
+        const twelveMonthsAgo = new Date();
+        twelveMonthsAgo.setMonth(now.getMonth() - 12);
+
+        const last12MonthsData = sortedHistory.filter(draw => {
+            const drawDate = new Date(draw.data.split('/').reverse().join('-'));
+            return drawDate >= twelveMonthsAgo;
+        });
+
+        // 3. Calculate Stats
+        const occurrences12m = last12MonthsData.filter(d =>
+            d.dezenas.some((dez: any) => dez.toString().padStart(2, '0') === nStr)
+        );
+        const freq12m = occurrences12m.length;
+        const total12m = last12MonthsData.length;
+        const percentage12m = total12m > 0 ? ((freq12m / total12m) * 100).toFixed(1) : '0';
+
+        // 4. Real Delay (Global Scan)
+        let currentDelay = sortedHistory.length;
+        for (let i = 0; i < sortedHistory.length; i++) {
+            if (sortedHistory[i].dezenas.some((dez: any) => dez.toString().padStart(2, '0') === nStr)) {
+                currentDelay = i;
+                break;
             }
         }
 
-        let occurrences: any[] = [];
-        if (viewMode === 'global' && historicalResults.length > 0) {
-            occurrences = historicalResults.filter(h =>
-                h.dezenas.some((d: any) => d.toString().padStart(2, '0') === nStr)
-            ).slice(0, 10);
+        // 5. Trend Calculation (vs Theoretical)
+        const DRAW_COUNTS: Record<string, number> = {
+            'lotofacil': 15, 'mega-sena': 6, 'quina': 5, 'lotomania': 20,
+            'timemania': 7, 'dupla-sena': 6, 'dia-de-sorte': 7,
+            'super-sete': 7, 'mais-milionaria': 6
+        };
+        const drawCount = DRAW_COUNTS[selectedGame] || 6;
+
+        let trend = "Normal";
+        let trendColor = "text-emerald-400";
+        const gameConfig = LOTTERIES[selectedGame];
+
+        if (gameConfig) {
+            const theoreticalProb = drawCount / gameConfig.range;
+            const actualProb = freq12m / (total12m || 1);
+
+            if (actualProb > theoreticalProb * 1.3) {
+                trend = "Muito Alta";
+                trendColor = "text-amber-500";
+            } else if (actualProb > theoreticalProb * 1.1) {
+                trend = "Alta";
+                trendColor = "text-emerald-400";
+            } else if (actualProb < theoreticalProb * 0.7) {
+                trend = "Baixa";
+                trendColor = "text-blue-400";
+            }
         }
+
+        // 6. Top Partners (Numbers that appear together frequently in 12m)
+        const partnersMap: Record<string, number> = {};
+        occurrences12m.forEach(draw => {
+            draw.dezenas.forEach((d: any) => {
+                const dStr = d.toString().padStart(2, '0');
+                if (dStr !== nStr) {
+                    partnersMap[dStr] = (partnersMap[dStr] || 0) + 1;
+                }
+            });
+        });
+        const topPartners = Object.entries(partnersMap)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([num, count]) => ({ num, count }));
+
+        // 7. Average Delay (Full History Analysis)
+        let totalDelays = 0;
+        let delayCount = 0;
+        let lastConcursoFound = -1;
+
+        for (let i = sortedHistory.length - 1; i >= 0; i--) {
+            const draw = sortedHistory[i];
+            const hasNumber = draw.dezenas.some((d: any) => d.toString().padStart(2, '0') === nStr);
+            if (hasNumber) {
+                if (lastConcursoFound !== -1) {
+                    const diff = draw.concurso - lastConcursoFound;
+                    totalDelays += diff;
+                    delayCount++;
+                }
+                lastConcursoFound = draw.concurso;
+            }
+        }
+        const avgDelay = delayCount > 0 ? (totalDelays / delayCount).toFixed(1) : "0";
 
         return {
             number: nStr,
-            frequency: freq,
-            percentage: total > 0 ? ((freq / total) * 100).toFixed(1) : '0',
-            delay,
-            occurrences,
-            totalAnalyzed: total
+            frequency: freq12m,
+            percentage: percentage12m,
+            delay: currentDelay,
+            occurrences: occurrences12m,
+            totalAnalyzed: total12m,
+            trend,
+            trendColor,
+            topPartners,
+            avgDelay
         };
-    }, [selectedNumberDetail, stats, viewMode, historicalResults]);
+    }, [selectedNumberDetail, historicalResults, selectedGame]);
+
+    // Animation for Modal Cards
+    useEffect(() => {
+        if (isNumberModalOpen && numberAnalysis) {
+            anime({
+                targets: '.stats-card',
+                translateY: [20, 0],
+                opacity: [0, 1],
+                scale: [0.95, 1],
+                delay: anime.stagger(100, { start: 100 }),
+                easing: 'easeOutElastic(1, .6)',
+                duration: 800
+            });
+        }
+    }, [isNumberModalOpen, numberAnalysis]);
 
     useEffect(() => {
         if (statsTab === 'heatmap') {
@@ -608,101 +749,125 @@ export default function StatsPage() {
         ];
     }, [stats]);
 
+    const handleTabChange = (key: string) => {
+        if (key === 'global' && !isPro) {
+            setShowProModal(true);
+            return;
+        }
+        setViewMode(key as any);
+    };
+
+    const handleExportClick = () => {
+        if (!isPro) {
+            setShowProModal(true);
+            return;
+        }
+        handleExport();
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500 pb-12 w-full max-w-[1720px] mx-auto">
             {/* Header Section */}
-            <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 rounded-3xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-                <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-900/40 p-6 md:p-8 rounded-3xl border border-white/5 backdrop-blur-2xl">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="w-8 h-0.5 bg-emerald-500 rounded-full"></div>
-                            <span className="text-[10px] font-black text-emerald-500 tracking-[0.3em] uppercase">Painel de Inteligência</span>
+            <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-blue-500/5 rounded-3xl blur-xl"></div>
+
+                <div className="relative bg-slate-900/40 border border-white/5 backdrop-blur-2xl rounded-3xl p-6 md:p-8 flex flex-col xl:flex-row items-center justify-between gap-8">
+
+                    {/* Title Section */}
+                    <div className="flex-1 w-full text-center xl:text-left space-y-3">
+                        <div className="flex items-center justify-center xl:justify-start gap-3">
+                            <div className="h-8 w-1 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full"></div>
+                            <span className="text-[10px] font-black text-emerald-500 tracking-[0.3em] uppercase">
+                                Painel de Inteligência
+                            </span>
                         </div>
-                        <h1 className="text-3xl lg:text-4xl font-black text-white leading-tight">
-                            {viewMode === 'global' ? 'Tendências ' : 'Estatísticas '}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-200">
-                                {viewMode === 'global' ? 'do Histórico' : 'Personalizadas'}
+
+                        <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-white tracking-tight">
+                            {viewMode === 'global' ? 'Análise ' : 'Estatísticas '}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
+                                {viewMode === 'global' ? 'Global' : 'Pessoais'}
                             </span>
                         </h1>
-                        <p className="text-slate-400 text-sm mt-3 font-medium max-w-xl leading-relaxed">
+
+                        <p className="text-slate-400 font-medium max-w-2xl mx-auto xl:mx-0 leading-relaxed text-sm md:text-base">
                             {viewMode === 'global'
-                                ? 'Visão abrangente extraída de todos os sorteios oficiais da história desta loteria.'
-                                : 'Análise profunda baseada no seu histórico de escolhas e preferências de jogo nos últimos 12 meses.'}
+                                ? 'Insights profundos extraídos de toda a base histórica oficial de sorteios.'
+                                : 'Métricas detalhadas sobre seu desempenho, padrões de aposta e evolução.'}
                         </p>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-center gap-5 w-full md:w-auto">
-                        <div className="flex flex-col gap-1.5 w-full sm:w-auto">
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Filtrar por Loteria</span>
-                            <Select
-                                aria-label="Loteria Analisada"
-                                selectedKeys={[selectedGame]}
-                                onSelectionChange={(k) => setSelectedGame(Array.from(k)[0] as string)}
-                                className="w-full sm:w-72"
-                                variant="flat"
-                                size="md"
-                                radius="full"
-                                classNames={{
-                                    trigger: "bg-slate-950 border border-white/10 hover:border-emerald-500/50 h-14 shadow-2xl transition-all",
-                                    value: "text-base font-black text-white px-2",
-                                    popoverContent: "bg-slate-950 border border-white/10"
-                                }}
-                            >
-                                {[
-                                    <SelectItem key="all" textValue="Visão Global (Consolidada)" className="text-slate-200">
-                                        Visão Global (Consolidada)
-                                    </SelectItem>,
-                                    ...Object.values(LOTTERIES).map(l => (
-                                        <SelectItem
-                                            key={l.slug}
-                                            textValue={l.name}
-                                            className="text-slate-200"
-                                            startContent={
-                                                <div className="w-3 h-3 rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)]" style={{ backgroundColor: l.hexColor }} />
-                                            }
-                                        >
+                    {/* Controls Section */}
+                    <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto bg-slate-950/50 p-2 rounded-2xl border border-white/5">
+
+                        {/* Game Selector */}
+                        <Select
+                            aria-label="Selecionar Loteria"
+                            selectedKeys={[selectedGame]}
+                            onSelectionChange={(k) => setSelectedGame(Array.from(k)[0] as string)}
+                            className="w-full md:w-64"
+                            classNames={{
+                                trigger: "bg-slate-900 border-white/10 h-12",
+                                value: "font-bold text-white",
+                                popoverContent: "bg-slate-900 border-white/10"
+                            }}
+                            renderValue={(items) => items.map(item => (
+                                <div key={item.key} className="flex items-center gap-2">
+                                    <span className="text-xs font-black text-slate-500 uppercase tracking-wider mr-2">JOGO:</span>
+                                    {item.textValue}
+                                </div>
+                            ))}
+                        >
+                            {[
+                                <SelectItem key="all" textValue="Todas" className="text-slate-200">
+                                    Visão Geral
+                                </SelectItem>,
+                                ...Object.values(LOTTERIES).map(l => (
+                                    <SelectItem key={l.slug} textValue={l.name} className="text-slate-200">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: l.hexColor }} />
                                             {l.name}
-                                        </SelectItem>
-                                    ))
-                                ]}
-                            </Select>
-                        </div>
+                                        </div>
+                                    </SelectItem>
+                                ))
+                            ]}
+                        </Select>
+
+                        <div className="w-px h-10 bg-white/10 hidden md:block"></div>
+
+                        {/* View Mode Tabs */}
                         {selectedGame !== 'all' && (
-                            <div className="flex flex-col gap-1.5 w-full sm:w-auto">
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Fonte de Dados</span>
-                                <Tabs
-                                    selectedKey={viewMode}
-                                    onSelectionChange={(k) => setViewMode(k as any)}
-                                    color="success"
-                                    variant="bordered"
-                                    radius="full"
-                                    size="md"
-                                    classNames={{
-                                        tabList: "bg-slate-950 border border-white/10 h-14 p-1.5",
-                                        cursor: "bg-emerald-500 shadow-lg shadow-emerald-500/30",
-                                        tab: "h-full px-6 text-xs font-black uppercase tracking-widest text-slate-500 data-[selected=true]:text-white"
-                                    }}
+                            <div className="flex bg-slate-900 rounded-xl p-1 border border-white/10 w-full md:w-auto">
+                                <button
+                                    onClick={() => setViewMode('personal')}
+                                    className={`flex-1 md:flex-none px-6 h-10 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${viewMode === 'personal'
+                                        ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                        }`}
                                 >
-                                    <Tab key="personal" title="MEUS JOGOS" />
-                                    <Tab key="global" title="HISTÓRICO" />
-                                </Tabs>
+                                    Meus Jogos
+                                </button>
+                                <button
+                                    onClick={() => handleTabChange('global')}
+                                    className={`flex-1 md:flex-none px-6 h-10 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${viewMode === 'global'
+                                        ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                        }`}
+                                >
+                                    Histórico
+                                    {!isPro && <Lock size={12} className="opacity-70" />}
+                                </button>
                             </div>
                         )}
 
-                        <div className="mt-5 sm:mt-0 flex items-end">
-                            <Button
-                                onPress={handleExport}
-                                color="success"
-                                variant="shadow"
-                                radius="full"
-                                size="lg"
-                                className="h-14 font-black px-8 bg-emerald-500 text-slate-950 hover:scale-105 transition-transform shadow-emerald-500/30"
-                                startContent={<Download size={20} />}
-                            >
-                                Exportar
-                            </Button>
-                        </div>
+                        <div className="w-px h-10 bg-white/10 hidden md:block"></div>
+
+                        {/* Actions */}
+                        <Button
+                            onPress={handleExportClick}
+                            className="bg-slate-900 border border-white/10 hover:border-emerald-500/50 text-white font-black h-12 w-full md:w-12 min-w-0 px-0 rounded-xl min-w-[3rem]"
+                        >
+                            <Download size={18} />
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -735,27 +900,38 @@ export default function StatsPage() {
                 />
             </div>
 
-            {/* Sub-Navigation */}
-            <div className="flex justify-center mt-4">
-                <Tabs
-                    selectedKey={statsTab}
-                    onSelectionChange={(k) => setStatsTab(k as string)}
-                    variant="light"
-                    radius="full"
-                    className="p-1 bg-slate-900/50 border border-white/5 backdrop-blur-xl"
-                    classNames={{
-                        tabList: "gap-1",
-                        cursor: "bg-emerald-500 shadow-lg shadow-emerald-500/20",
-                        tab: "h-10 px-6 text-xs font-black uppercase tracking-widest text-slate-400 data-[selected=true]:text-white"
-                    }}
-                >
-                    <Tab key="overview" title="Resumo Analítico" />
-                    <Tab key="numbers" title="Análise de Dezenas" />
-                    <Tab key="pairs" title="Pares Frequentes" />
-                    <Tab key="heatmap" title="Mapa de Calor" />
-                    <Tab key="patterns" title="Tendências Globais" />
-                    <Tab key="history" title="Cruzamento Histórico" />
-                </Tabs>
+            {/* Sub-Navigation (Custom AnimeJS) */}
+            <div className="w-full flex justify-center mt-6 mb-8">
+                <div className="relative flex items-center bg-slate-900/80 backdrop-blur-xl border border-white/10 p-1.5 rounded-full shadow-2xl">
+                    {/* Animated Cursor */}
+                    <div
+                        ref={cursorRef}
+                        className="absolute top-1.5 bottom-1.5 bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full shadow-lg shadow-emerald-500/20 z-0 pointer-events-none opacity-0"
+                    />
+
+                    {[
+                        { id: 'overview', label: 'Resumo' },
+                        { id: 'heatmap', label: 'Mapa de Calor' },
+                        { id: 'numbers', label: 'Rankings' },
+                        { id: 'pairs', label: 'Pares' },
+                        { id: 'patterns', label: 'Tendências' },
+                        { id: 'history', label: 'Cruzamento' }
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            ref={el => { tabRefs.current[tab.id] = el }}
+                            onClick={() => setStatsTab(tab.id)}
+                            className={`
+                                relative z-10 px-5 h-9 flex items-center justify-center 
+                                text-[10px] md:text-xs font-black uppercase tracking-widest 
+                                transition-colors duration-300
+                                ${statsTab === tab.id ? 'text-slate-950' : 'text-slate-500 hover:text-slate-300'}
+                            `}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* Dynamic Content */}
@@ -963,53 +1139,107 @@ export default function StatsPage() {
                                 const nStr = n.toString().padStart(2, '0');
                                 const freq = (viewMode === 'personal' ? stats.numberFreq[n] : (stats.globalStats?.frequency?.[n] || stats.globalStats?.frequency?.[nStr])) || 0;
                                 const allFreqsMap = viewMode === 'personal' ? stats.numberFreq : (stats.globalStats?.frequency || {});
-                                const maxFreq = Math.max(...Object.values(allFreqsMap) as number[]) || 1;
-                                const intensity = freq / maxFreq;
 
-                                // Top 10 and Bottom 10 markers
+                                // Calculate Ranks
                                 const allFreqs = Object.entries(allFreqsMap)
                                     .map(([num, f]) => ({ num: num.toString().padStart(2, '0'), f: f as number }))
                                     .sort((a, b) => b.f - a.f);
 
-                                const isTop10 = allFreqs.slice(0, 10).some(f => f.num === nStr);
-                                const isBottom10 = allFreqs.slice(-10).some(f => f.num === nStr);
-                                const isFirst = allFreqs[0]?.num === nStr;
+                                const rankIndex = allFreqs.findIndex(f => f.num === nStr);
+                                const isFirst = rankIndex === 0 && freq > 0;
+                                const isTop10 = rankIndex < 10 && freq > 0;
+                                const isBottom10 = allFreqs.length > 20 && rankIndex >= allFreqs.length - 10;
+                                const isCold = !isTop10 && !isFirst && (freq === 0 || isBottom10);
+
+                                // Intensity for opacity (0.2 to 1.0)
+                                const maxFreq = allFreqs[0]?.f || 1;
+                                const minFreq = allFreqs[allFreqs.length - 1]?.f || 0;
+                                const intensity = maxFreq === minFreq ? 0.5 : (freq - minFreq) / (maxFreq - minFreq);
+
+                                // Theme Colors based on game
+                                const themeRgbMap: Record<string, string> = {
+                                    lotofacil: '168, 85, 247', // Purple
+                                    megasena: '16, 185, 129', // Emerald
+                                    quina: '59, 130, 246', // Blue
+                                    lotomania: '249, 115, 22', // Orange
+                                    timemania: '234, 179, 8', // Yellow
+                                    duplasena: '220, 38, 38', // Red
+                                    diadesorte: '217, 119, 6', // Amber
+                                };
+                                const themeRgb = themeRgbMap[selectedGame] || '16, 185, 129';
 
                                 return (
                                     <Tooltip
                                         key={n}
-                                        content={`Número ${nStr}: ${freq} ocorrências`}
-                                        className="bg-slate-900 text-white rounded-lg border border-white/10 px-3 py-1 text-xs font-bold"
+                                        content={
+                                            <div className="px-1 py-1">
+                                                <div className="text-xs font-bold text-white mb-1">Número {nStr}</div>
+                                                <div className="text-[10px] text-slate-400">{freq} ocorrências ({((freq / (stats.totalGames || 1)) * 100).toFixed(1)}%)</div>
+                                                {isFirst && <div className="text-[10px] text-yellow-400 font-black mt-1 uppercase">★ Mais Sorteado</div>}
+                                            </div>
+                                        }
+                                        className="bg-slate-950 border border-white/10"
                                         closeDelay={0}
                                     >
                                         <div
                                             onClick={() => {
                                                 setSelectedNumberDetail(nStr);
+                                                setModalPage(1);
                                                 onNumberModalOpen();
                                             }}
                                             className={`
-                                                heatmap-cell aspect-square rounded-2xl flex flex-col items-center justify-center transition-all duration-300 border relative group cursor-pointer overflow-hidden
-                                                ${freq > 0 ? 'hover:scale-110 shadow-lg' : 'opacity-20'}
-                                                ${isFirst ? 'ring-4 ring-yellow-500 shadow-yellow-500/30 scale-105 z-20' : ''}
-                                                ${isTop10 && !isFirst ? 'ring-2 ring-emerald-400/30 shadow-emerald-400/10' : ''}
+                                                relative aspect-square rounded-2xl flex flex-col items-center justify-center transition-all duration-500 cursor-pointer overflow-hidden group
+                                                ${isFirst ? 'scale-110 z-20 shadow-[0_0_20px_rgba(234,179,8,0.3)] ring-2 ring-yellow-500' : 'hover:scale-105 hover:z-10 hover:shadow-lg'}
                                             `}
                                             style={{
-                                                backgroundColor: freq > 0 ? `rgba(${selectedGame === 'lotofacil' ? '192, 38, 211' : '16, 185, 129'}, ${0.1 + intensity * 0.65})` : 'rgba(255,255,255,0.02)',
-                                                borderColor: isFirst ? 'rgba(234, 179, 8, 1)' : (freq > 0 ? `rgba(${selectedGame === 'lotofacil' ? '192, 38, 211' : '16, 185, 129'}, ${0.3 + intensity * 0.4})` : 'transparent')
+                                                backgroundColor: freq > 0 ? (
+                                                    isFirst ? 'rgba(234, 179, 8, 0.25)' :
+                                                        `rgba(${themeRgb}, ${0.1 + (intensity * 0.65)})`
+                                                ) : 'rgba(30, 41, 59, 0.25)',
+                                                borderColor: freq > 0 ? (
+                                                    isFirst ? 'rgba(234, 179, 8, 1)' :
+                                                        `rgba(${themeRgb}, ${0.2 + (intensity * 0.5)})`
+                                                ) : 'rgba(255, 255, 255, 0.05)',
+                                                borderWidth: isFirst ? '2px' : '1px'
                                             }}
                                         >
-                                            <span className={`text-xl font-black transition-transform group-hover:scale-110 ${freq > 0 ? 'text-white' : 'text-slate-800'}`}>
+                                            {/* Number */}
+                                            <span className={`text-xl font-black transition-transform group-hover:scale-110 z-10 ${isFirst ? 'text-yellow-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]' :
+                                                isTop10 ? 'text-white' :
+                                                    isCold ? 'text-slate-500 group-hover:text-blue-300' :
+                                                        'text-slate-400 group-hover:text-white'
+                                                }`}>
                                                 {nStr}
                                             </span>
 
-                                            {isFirst && <Trophy size={14} className="absolute top-1 right-1 text-yellow-500 drop-shadow-md" />}
-                                            {isTop10 && !isFirst && <Flame size={12} className="absolute top-1 right-1 text-emerald-400" />}
-                                            {isBottom10 && <Snowflake size={12} className="absolute top-1 right-1 text-blue-400" />}
+                                            {/* Badge Layout */}
+                                            {isFirst && (
+                                                <>
+                                                    <div className="absolute -inset-1 bg-yellow-500/20 blur animate-pulse"></div>
+                                                    <Trophy size={14} className="absolute top-1.5 right-1.5 text-yellow-500 drop-shadow-md" />
+                                                </>
+                                            )}
 
-                                            {freq > 0 && (
-                                                <span className="text-[7px] font-black text-slate-400 mt-0.5 uppercase tracking-tighter opacity-50">
-                                                    {freq}x
-                                                </span>
+                                            {isTop10 && !isFirst && (
+                                                <Flame size={12} className="absolute top-1.5 right-1.5 text-red-500 drop-shadow-sm" />
+                                            )}
+
+                                            {isCold && (
+                                                <div className="absolute top-1.5 right-1.5">
+                                                    <Snowflake size={12} className={['quina', 'megasena', 'duplasena', 'lotofacil'].includes(selectedGame) ? "text-white drop-shadow-md" : "text-cyan-400"} />
+                                                </div>
+                                            )}
+
+                                            {/* Frequency Bar/Indicator (Subtle) */}
+                                            {freq > 0 && !isFirst && !isCold && (
+                                                <div
+                                                    className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500/20"
+                                                    style={{ width: `${intensity * 100}%` }}
+                                                ></div>
+                                            )}
+
+                                            {isFirst && (
+                                                <div className="absolute bottom-2 text-[8px] font-black text-yellow-500 uppercase tracking-wider">LÍDER</div>
                                             )}
                                         </div>
                                     </Tooltip>
@@ -1448,60 +1678,285 @@ export default function StatsPage() {
                     {(onClose) => (
                         <>
                             <ModalHeader className="flex flex-col gap-1">
-                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 text-xl font-black">
-                                        {numberAnalysis?.number}
-                                    </div>
-                                    Análise Detalhada do Número
-                                </h2>
+                                {!numberAnalysis ? (
+                                    <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-slate-500 text-xl font-black border border-white/5">
+                                            ?
+                                        </div>
+                                        Detalhes do Número
+                                    </h2>
+                                ) : (
+                                    <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 text-xl font-black">
+                                            {numberAnalysis.number}
+                                        </div>
+                                        Análise Detalhada
+                                        <span className="ml-3 px-3 py-1 rounded-full bg-slate-800 border border-white/10 text-[10px] uppercase font-bold text-slate-400">
+                                            Últimos 12 Meses
+                                        </span>
+                                    </h2>
+                                )}
                             </ModalHeader>
                             <ModalBody className="pb-8">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <Card className="bg-slate-900/40 p-6 border border-white/5 flex flex-col justify-center">
-                                        <p className="text-[10px] font-black text-slate-500 uppercase mb-4">Frequência Relativa</p>
-                                        <div className="text-4xl font-black text-emerald-500 mb-1">{numberAnalysis?.frequency}x</div>
-                                        <p className="text-xs text-slate-400">Apareceu em {numberAnalysis?.percentage}% dos concursos</p>
-                                    </Card>
-                                    <Card className="bg-slate-900/40 p-6 border border-white/5 flex flex-col justify-center">
-                                        <p className="text-[10px] font-black text-slate-500 uppercase mb-4">Atraso Atual</p>
-                                        <div className="text-4xl font-black text-amber-500 mb-1">{numberAnalysis?.delay}</div>
-                                        <p className="text-xs text-slate-400">Concursos desde a última aparição</p>
-                                    </Card>
-                                    <Card className="bg-emerald-500/10 p-6 border border-emerald-500/20 flex flex-col justify-center text-center">
-                                        <TrendingUp className="mx-auto text-emerald-500 mb-2" size={24} />
-                                        <h4 className="text-xs font-black text-white uppercase tracking-wider">Tendência</h4>
-                                        <p className="text-xs text-emerald-400 font-bold mt-1">Alta Probabilidade</p>
-                                    </Card>
-                                </div>
-
-                                <div className="mt-8">
-                                    <h3 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <History size={16} className="text-slate-500" /> Últimas Ocorrências Reais
-                                    </h3>
-                                    <div className="space-y-3">
-                                        {numberAnalysis?.occurrences.map((occ: any) => (
-                                            <div key={occ.concurso} className="bg-slate-900/60 p-4 rounded-xl border border-white/5 flex items-center justify-between">
-                                                <div>
-                                                    <span className="text-xs font-black text-emerald-500">Concurso {occ.concurso}</span>
-                                                    <p className="text-[10px] text-slate-500">{occ.data}</p>
-                                                </div>
-                                                <div className="flex gap-1">
-                                                    {occ.dezenas.map((d: any) => {
-                                                        const isTarget = d.toString().padStart(2, '0') === numberAnalysis?.number;
-                                                        return (
-                                                            <div key={d} className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black ${isTarget ? 'bg-emerald-500 text-slate-950' : 'bg-slate-950 text-slate-600'}`}>
-                                                                {d.toString().padStart(2, '0')}
-                                                            </div>
-                                                        )
-                                                    })}
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {numberAnalysis?.occurrences.length === 0 && (
-                                            <p className="text-center text-slate-500 py-8 italic text-sm">Nenhuma ocorrência encontrada nos últimos registros.</p>
-                                        )}
+                                {!numberAnalysis ? (
+                                    <div className="py-20 flex flex-col items-center text-center animate-in fade-in zoom-in duration-300">
+                                        <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mb-6 text-slate-500 shadow-inner border border-white/5">
+                                            <Search size={40} />
+                                        </div>
+                                        <h3 className="text-xl font-black text-white mb-2">Selecione uma Loteria</h3>
+                                        <p className="text-slate-400 max-w-xs mb-8 text-sm leading-relaxed font-medium">
+                                            Para ver a análise detalhada de tendência e histórico real, selecione um jogo específico no menu superior (ex: Lotofácil).
+                                        </p>
+                                        <Button
+                                            variant="flat"
+                                            color="primary"
+                                            onPress={onClose}
+                                            className="font-bold bg-slate-800 text-white"
+                                        >
+                                            Entendi, vou selecionar
+                                        </Button>
                                     </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                            {/* Frequency Card */}
+                                            <Card className="stats-card opacity-0 bg-slate-900/60 p-5 border border-white/5 relative overflow-hidden group hover:border-emerald-500/20 transition-all">
+                                                <div className="absolute -right-4 -top-4 text-emerald-500/5 group-hover:text-emerald-500/10 transition-colors">
+                                                    <Target size={80} />
+                                                </div>
+                                                <div className="relative z-10">
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Frequência</p>
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-3xl font-black text-white">{numberAnalysis.frequency}</span>
+                                                        <span className="text-sm font-bold text-emerald-500">ocorrências</span>
+                                                    </div>
+                                                    <div className="mt-4">
+                                                        <div className="flex justify-between text-[10px] text-slate-400 mb-1 font-medium">
+                                                            <span>Presença (12m)</span>
+                                                            <span className="text-emerald-400">{numberAnalysis.percentage}%</span>
+                                                        </div>
+                                                        <Progress
+                                                            aria-label="Frequência Relativa"
+                                                            value={parseFloat(numberAnalysis.percentage)}
+                                                            color="success"
+                                                            size="sm"
+                                                            classNames={{ indicator: "bg-emerald-500", track: "bg-slate-800" }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </Card>
+
+                                            {/* Delay Card */}
+                                            <Card className="stats-card opacity-0 bg-slate-900/60 p-5 border border-white/5 relative overflow-hidden group hover:border-amber-500/20 transition-all">
+                                                <div className="absolute -right-4 -top-4 text-amber-500/5 group-hover:text-amber-500/10 transition-colors">
+                                                    <Clock size={80} />
+                                                </div>
+                                                <div className="relative z-10">
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Atraso Atual</p>
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className={`text-3xl font-black ${numberAnalysis.delay > parseFloat(numberAnalysis.avgDelay) ? 'text-amber-500' : 'text-white'}`}>{numberAnalysis.delay}</span>
+                                                        <span className="text-sm font-bold text-slate-500">concursos</span>
+                                                    </div>
+                                                    <div className="mt-4 bg-slate-950/50 rounded-lg p-2 flex items-center justify-between border border-white/5">
+                                                        <span className="text-[10px] text-slate-500 font-bold">MÉDIA HISTÓRICA</span>
+                                                        <span className="text-xs font-black text-slate-300">{numberAnalysis.avgDelay}</span>
+                                                    </div>
+                                                </div>
+                                            </Card>
+
+                                            {/* Trend Card */}
+                                            <Card className="stats-card opacity-0 bg-slate-900/60 p-5 border border-white/5 relative overflow-hidden flex flex-col items-center justify-center text-center group hover:border-blue-500/20 transition-all">
+                                                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/50 pointer-events-none"></div>
+                                                <TrendingUp className={`mb-3 ${numberAnalysis.trendColor || 'text-slate-500'}`} size={32} />
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tendência Estatística</p>
+                                                <p className={`text-xl font-black ${numberAnalysis.trendColor || 'text-white'}`}>
+                                                    {numberAnalysis.trend || 'Calculando...'}
+                                                </p>
+                                            </Card>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+                                            {/* Partners Card (Wider) */}
+                                            <Card className="stats-card opacity-0 col-span-1 md:col-span-4 bg-slate-900/60 p-5 border border-white/5 relative overflow-hidden">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <Users size={16} className="text-blue-400" />
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Melhores Parceiros (12m)</p>
+                                                </div>
+                                                <div className="flex items-center justify-around">
+                                                    {numberAnalysis.topPartners && numberAnalysis.topPartners.length > 0 ? numberAnalysis.topPartners.map((p: any, idx: number) => (
+                                                        <div key={p.num} className="flex flex-col items-center group/partner cursor-pointer">
+                                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black mb-2 transition-all 
+                                                                ${idx === 0 ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 scale-110' : 'bg-slate-800 text-slate-400 border border-white/10 group-hover/partner:bg-slate-700'}
+                                                            `}>
+                                                                {p.num}
+                                                            </div>
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-xs font-bold text-white">{p.count}x</span>
+                                                                <span className="text-[9px] text-slate-500 uppercase">Juntos</span>
+                                                            </div>
+                                                        </div>
+                                                    )) : (
+                                                        <span className="text-xs text-slate-600 italic">Sem dados suficientes.</span>
+                                                    )}
+                                                </div>
+                                            </Card>
+
+                                            {/* Status Summary (Narrower) */}
+                                            <Card className="stats-card opacity-0 col-span-1 md:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 p-5 border border-white/5 flex flex-col justify-center items-center text-center relative overflow-hidden">
+                                                {(() => {
+                                                    const delay = numberAnalysis.delay;
+                                                    const avg = parseFloat(numberAnalysis.avgDelay);
+
+                                                    if (delay > avg * 1.5) {
+                                                        return (
+                                                            <>
+                                                                <div className="absolute inset-0 bg-red-500/10 pointer-events-none animate-pulse"></div>
+                                                                <AlertCircle size={32} className="text-red-500 mb-2" />
+                                                                <p className="text-red-500 font-bold text-sm">Atraso Crítico</p>
+                                                                <p className="text-[10px] text-slate-500 mt-1">Muito acima da média</p>
+                                                            </>
+                                                        );
+                                                    } else if (delay > avg) {
+                                                        return (
+                                                            <>
+                                                                <div className="absolute inset-0 bg-amber-500/5 pointer-events-none"></div>
+                                                                <AlertCircle size={32} className="text-amber-500 mb-2" />
+                                                                <p className="text-amber-500 font-bold text-sm">Atrasado</p>
+                                                                <p className="text-[10px] text-slate-500 mt-1">Acima da média</p>
+                                                            </>
+                                                        );
+                                                    } else if (delay > avg * 0.7) {
+                                                        return (
+                                                            <>
+                                                                <div className="absolute inset-0 bg-yellow-500/5 pointer-events-none"></div>
+                                                                <AlertCircle size={32} className="text-yellow-500 mb-2" />
+                                                                <p className="text-yellow-500 font-bold text-sm">Atenção</p>
+                                                                <p className="text-[10px] text-slate-500 mt-1">Próximo da média</p>
+                                                            </>
+                                                        );
+                                                    } else {
+                                                        return (
+                                                            <>
+                                                                <div className="absolute inset-0 bg-emerald-500/5 pointer-events-none"></div>
+                                                                <CheckCircle2 size={32} className="text-emerald-500 mb-2" />
+                                                                <p className="text-emerald-500 font-bold text-sm">Em Dia</p>
+                                                                <p className="text-[10px] text-slate-500 mt-1">Dentro do esperado</p>
+                                                            </>
+                                                        );
+                                                    }
+                                                })()}
+                                            </Card>
+                                        </div>
+
+                                        <div className="mt-8 stats-card opacity-0">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                <History size={16} className="text-slate-500" /> Últimas Ocorrências Reais
+                                            </h3>
+                                            <div className="space-y-3 min-h-[300px]">
+                                                {numberAnalysis.occurrences
+                                                    .slice((modalPage - 1) * 5, modalPage * 5)
+                                                    .map((occ: any) => (
+                                                        <div key={occ.concurso} className="bg-slate-900/60 p-4 rounded-xl border border-white/5 flex items-center justify-between hover:bg-slate-900 transition-colors">
+                                                            <div>
+                                                                <span className="text-xs font-black text-emerald-500">Concurso {occ.concurso}</span>
+                                                                <p className="text-[10px] text-slate-500 font-bold">{occ.data}</p>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                {occ.dezenas.map((d: any) => {
+                                                                    const isTarget = d.toString().padStart(2, '0') === numberAnalysis.number;
+                                                                    return (
+                                                                        <div key={d} className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black ${isTarget ? 'bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-slate-950 text-slate-600'}`}>
+                                                                            {d.toString().padStart(2, '0')}
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                {numberAnalysis.occurrences.length === 0 && (
+                                                    <div className="flex flex-col items-center justify-center h-[200px] text-slate-500 italic text-sm border border-dashed border-white/5 rounded-2xl">
+                                                        <p>Nenhuma ocorrência encontrada nos últimos 12 meses.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {numberAnalysis.occurrences.length > 5 && (
+                                                <div className="flex justify-center mt-8">
+                                                    <Pagination
+                                                        total={Math.ceil(numberAnalysis.occurrences.length / 5)}
+                                                        page={modalPage}
+                                                        onChange={setModalPage}
+                                                        size="sm" // Compact size
+                                                        variant="light"
+                                                        classNames={{
+                                                            cursor: "bg-emerald-500 text-slate-950 font-bold shadow-lg shadow-emerald-500/20",
+                                                            item: "text-slate-500 font-bold hover:bg-white/5 data-[disabled=true]:text-slate-800"
+                                                        }}
+                                                        showControls
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </ModalBody>
+                        </>
+                    )}
+                </ModalContent>
+            </Modal>
+
+            {/* PRO UPGRADE MODAL */}
+            <Modal
+                isOpen={showProModal}
+                onOpenChange={setShowProModal}
+                backdrop="blur"
+                classNames={{
+                    base: "bg-slate-950 border border-amber-500/20",
+                    header: "border-b border-white/5",
+                    footer: "border-t border-white/5",
+                }}
+            >
+                <ModalContent>
+                    {(onClose) => (
+                        <>
+                            <ModalHeader className="flex flex-col gap-1 items-center text-center pt-8">
+                                <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4 border border-amber-500/20 shadow-[0_0_30px_rgba(245,158,11,0.2)]">
+                                    <Crown className="text-amber-500" size={32} />
                                 </div>
+                                <h2 className="text-2xl font-black text-white">Recurso Exclusivo PRO</h2>
+                            </ModalHeader>
+                            <ModalBody className="text-center px-8 pb-8">
+                                <p className="text-slate-400 mb-6">
+                                    Esta análise avançada faz parte do pacote de inteligência PRO. Desbloqueie o acesso completo ao histórico global, filtros avançados e exportação de dados.
+                                </p>
+                                <ul className="text-left space-y-3 mb-6 bg-slate-900/50 p-6 rounded-2xl border border-white/5">
+                                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                                        <Lock size={14} className="text-amber-500" />
+                                        <span>Acesso ilimitado ao Histórico Global</span>
+                                    </li>
+                                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                                        <Lock size={14} className="text-amber-500" />
+                                        <span>Análise de Tendências de Longo Prazo</span>
+                                    </li>
+                                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                                        <Lock size={14} className="text-amber-500" />
+                                        <span>Exportação de Dados em CSV</span>
+                                    </li>
+                                </ul>
+                                <Button
+                                    className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black shadow-lg shadow-amber-500/20"
+                                    size="lg"
+                                    onPress={() => window.location.href = '/dashboard/subscription'}
+                                >
+                                    DESBLOQUEAR AGORA
+                                </Button>
+                                <Button
+                                    variant="light"
+                                    className="w-full text-slate-500 font-bold mt-2"
+                                    onPress={onClose}
+                                >
+                                    Talvez depois
+                                </Button>
                             </ModalBody>
                         </>
                     )}
