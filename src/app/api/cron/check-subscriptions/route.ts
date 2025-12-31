@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, Timestamp } from 'firebase/firestore';
 
+export const runtime = 'edge';
+
 export async function GET(req: NextRequest) {
     try {
         // Verificar autorização (opcional - adicionar secret)

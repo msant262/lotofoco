@@ -4,6 +4,8 @@ import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import fs from 'fs';
 import path from 'path';
 
+export const runtime = 'nodejs';
+
 const DB_NAMES: Record<string, string> = {
     'mega-sena': 'Mega-Sena',
     'lotofacil': 'Lotofácil',

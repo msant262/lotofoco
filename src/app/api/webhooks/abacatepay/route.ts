@@ -3,6 +3,8 @@ import { db } from '@/lib/firebase';
 import { doc, setDoc, updateDoc, Timestamp, collection } from 'firebase/firestore';
 import crypto from 'crypto';
 
+export const runtime = 'edge';
+
 export async function POST(req: NextRequest) {
     try {
         // 1. Ler o body como texto para validação
