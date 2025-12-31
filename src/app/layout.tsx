@@ -33,6 +33,7 @@ export const metadata: Metadata = {
 import { Navbar } from "@/components/layout/navbar";
 
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { HeroUIProvider } from "@/components/providers/hero-ui-provider";
 
 export default function RootLayout({
   children,
@@ -49,8 +50,10 @@ export default function RootLayout({
         )}
       >
         <AuthProvider>
-          <Navbar />
-          {children}
+          <HeroUIProvider>
+            <Navbar />
+            {children}
+          </HeroUIProvider>
         </AuthProvider>
       </body>
     </html>

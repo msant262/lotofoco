@@ -12,7 +12,9 @@ import { ResultsDialog } from '@/components/lottery/results-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Sparkles, Trash2, Plus, Minus, Layers, Loader2 } from 'lucide-react';
-
+import { useAuth } from '@/components/providers/auth-provider';
+import { saveBet, GameItem } from '@/lib/firebase/bets-client';
+import { SuccessModal } from '@/components/lottery/success-modal';
 
 interface GamePageClientProps {
     gameSlug: string;
@@ -21,6 +23,7 @@ interface GamePageClientProps {
 export default function GamePageClient({ gameSlug }: GamePageClientProps) {
     const slug = gameSlug;
     const config = LOTTERIES[slug];
+    const { user } = useAuth();
 
     // Default Main Quantity & Games Count
     const [quantity, setQuantity] = useState(config?.minBet || 15);
@@ -38,13 +41,15 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
     const [lotecaOutcomes, setLotecaOutcomes] = useState<Record<number, string>>({});
 
     // Prediction Result
-    const [predictions, setPredictions] = useState<string[][]>([]);
+    const [predictions, setPredictions] = useState<GameItem[]>([]);
     const [isPending, startTransition] = useTransition();
     const [isRevealing, setIsRevealing] = useState(false);
     const [hasRevealed, setHasRevealed] = useState(false);
 
     // Modal State
     const [showResults, setShowResults] = useState(false);
+    const [showSuccess, setShowSuccess] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     if (!config) {
         return (
@@ -95,18 +100,16 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
             }
 
             const extrasNeeded = extraQuantity - selectedExtras.length;
-            const generatedGames: string[][] = [];
+            const generatedGames: GameItem[] = [];
 
             // GENERATE MULTIPLE GAMES LOOP
-            // Note: In PROD, please create a Bulk Generate Server Action to call AI once.
-            // Calling loop here is slow but okay for demo.
             for (let i = 0; i < gamesCount; i++) {
                 try {
                     const response = await fetch('/api/prediction', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            userId: 'demo-user',
+                            userId: user?.uid || 'demo',
                             game: config.name,
                             quantity,
                             extraQuantity: extrasNeeded,
@@ -122,14 +125,14 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
                         const aiMain = result.numbers.slice(0, quantity);
                         const aiExtras = result.numbers.slice(quantity);
                         const finalExtras = [...selectedExtras, ...aiExtras].slice(0, extraQuantity);
-                        const finalGame = [...aiMain, ...finalExtras];
-                        generatedGames.push(finalGame);
+
+                        generatedGames.push({
+                            main: aiMain,
+                            extras: finalExtras
+                        });
                     }
                 } catch (err) {
                     console.error("Prediction error", err);
-                    // Continue with other games if one fails? Or break?
-                    // Maybe fallback locally if API fails completely?
-                    // The API already has a fallback, so error here means network error.
                 }
             }
 
@@ -138,6 +141,62 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
             setIsRevealing(false);
             setShowResults(true); // TRIGGER MODAL
         });
+    };
+
+    const handleSaveGames = async () => {
+        if (!user) {
+            alert("Você precisa estar logado para salvar jogos.");
+            return;
+        }
+        setIsSaving(true);
+        try {
+            // Save as BATCH (Single document with array of games)
+            await saveBet(user.uid, slug, config.name, predictions);
+
+            setIsSaving(false);
+            setShowResults(false);
+            setShowSuccess(true);
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao salvar jogos.");
+            setIsSaving(false);
+        }
+    };
+
+    const handlePrintGames = () => {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>Impressão - ${config.name}</title>
+                    <style>
+                        body { font-family: monospace; padding: 20px; }
+                        .ticket { border: 1px solid #000; padding: 10px; margin-bottom: 20px; page-break-inside: avoid; }
+                        .header { font-weight: bold; font-size: 18px; margin-bottom: 5px; }
+                        .numbers { font-size: 16px; font-weight: bold; letter-spacing: 2px; }
+                        .footer { font-size: 10px; color: #555; margin-top: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>${config.name} - Palpites LotoFoco</h1>
+                    ${predictions.map((game, i) => {
+                const allNumbers = [...game.main, ...(game.extras || [])].join(' - ');
+                return `
+                        <div class="ticket">
+                            <div class="header">JOGO ${i + 1}</div>
+                            <div class="numbers">${allNumbers}</div>
+                            <div class="footer">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+                        </div>
+                    `}).join('')}
+                    <script>
+                        window.onload = () => { window.print(); }
+                    </script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
     };
 
     const remainingMain = quantity - selectedNumbers.length;
@@ -288,11 +347,22 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
                 </main>
 
                 {/* RESULTS DIALOG */}
+                {/* Need to update ResultsDialog to accept GameItem[] */}
                 <ResultsDialog
                     open={showResults}
                     onOpenChange={setShowResults}
                     config={config}
                     predictions={predictions}
+                    onSave={handleSaveGames}
+                    onPrint={handlePrintGames}
+                    isSaving={isSaving}
+                />
+
+                <SuccessModal
+                    open={showSuccess}
+                    onOpenChange={setShowSuccess}
+                    onPrint={handlePrintGames}
+                    onClose={() => setShowSuccess(false)}
                 />
             </div>
         </div>

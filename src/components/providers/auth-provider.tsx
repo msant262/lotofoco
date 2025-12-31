@@ -13,6 +13,7 @@ import {
     browserLocalPersistence,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { syncUserToFirestore } from "@/lib/firebase/users-client";
 
 interface AuthContextType {
     user: User | null;
@@ -46,6 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
+            if (currentUser) {
+                syncUserToFirestore(currentUser);
+            }
 
             const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
             setIsAdmin(!!(currentUser && adminEmail && currentUser.email === adminEmail));

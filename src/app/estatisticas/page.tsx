@@ -61,8 +61,9 @@ export default function EstatisticasPage() {
 
     // Advanced stats
     const advancedStats = useMemo(() => {
-        if (!stats) return null;
+        if (!stats || stats.ultimosResultados.length === 0) return null;
 
+        const periodSize = stats.ultimosResultados.length;
         const somas = stats.ultimosResultados.map(r => r.dezenas.reduce((acc, d) => acc + parseInt(d), 0));
         const somaMedia = Math.round(somas.reduce((a, b) => a + b, 0) / somas.length);
         const somaMin = Math.min(...somas);
@@ -78,18 +79,18 @@ export default function EstatisticasPage() {
         });
 
         const acumulados = stats.ultimosResultados.filter(r => r.acumulado).length;
-        const taxaAcumulacao = Math.round((acumulados / stats.totalConcursos) * 100);
+        const taxaAcumulacao = Math.round((acumulados / periodSize) * 100);
 
         let consecutivos = 0;
         stats.ultimosResultados.forEach(r => {
             const nums = r.dezenas.map(d => parseInt(d)).sort((a, b) => a - b);
             for (let i = 0; i < nums.length - 1; i++) if (nums[i + 1] - nums[i] === 1) consecutivos++;
         });
-        const mediaConsecutivos = (consecutivos / stats.totalConcursos).toFixed(1);
+        const mediaConsecutivos = (consecutivos / periodSize).toFixed(1);
 
         const pares: Record<string, number> = {};
         stats.ultimosResultados.forEach(r => {
-            const nums = r.dezenas.sort();
+            const nums = [...r.dezenas].sort();
             for (let i = 0; i < nums.length; i++) {
                 for (let j = i + 1; j < nums.length; j++) {
                     pares[`${nums[i]}-${nums[j]}`] = (pares[`${nums[i]}-${nums[j]}`] || 0) + 1;
@@ -104,13 +105,16 @@ export default function EstatisticasPage() {
             const anterior = stats.ultimosResultados[i - 1].dezenas;
             repeticoes += atual.filter(d => anterior.includes(d)).length;
         }
-        const mediaRepeticoes = (repeticoes / (stats.totalConcursos - 1)).toFixed(1);
 
-        let maiorStreak = 0, streakAtual = 0;
+        // Usar pré-calculados se disponíveis
+        const mediaRepeticoes = stats.mediaRepeticoes || (repeticoes / (periodSize - 1 || 1)).toFixed(1);
+
+        let calculatedMaiorStreak = 0, streakAtual = 0;
         stats.ultimosResultados.forEach(r => {
-            if (r.acumulado) { streakAtual++; maiorStreak = Math.max(maiorStreak, streakAtual); }
+            if (r.acumulado) { streakAtual++; calculatedMaiorStreak = Math.max(calculatedMaiorStreak, streakAtual); }
             else streakAtual = 0;
         });
+        const maiorStreak = stats.maiorStreak ?? calculatedMaiorStreak;
 
         return { somaMedia, somaMin, somaMax, faixas, taxaAcumulacao, mediaConsecutivos, topPares, mediaRepeticoes, maiorStreak };
     }, [stats]);

@@ -1,5 +1,5 @@
 import { db } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp, collection, query, orderBy, limit, getDocs, getDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, collection, query, orderBy, limit, getDocs, getDoc, where } from "firebase/firestore";
 import type { LotteryFullData } from "@/lib/caixa/caixa-client";
 
 const DB_NAMES: Record<string, string> = {
@@ -35,6 +35,10 @@ export interface StatsData {
     menosFrequentes: string[];
     mediaAtraso: Record<string, number>;
     parImpar: { pares: number; impares: number };
+    mediaRepeticoes?: string;
+    maiorStreak?: number;
+    totalAcumulados?: number;
+    totalConsecutivos?: number;
 }
 
 export async function saveDrawClient(slug: string, draw: LotteryFullData): Promise<boolean> {
@@ -102,20 +106,53 @@ export async function getStatsClient(slug: string, limitCount: number = 100): Pr
     if (!dbName || !db) return null;
 
     try {
+        // 1. Tentar Snapshot Estático para Frequência Global (Alta Eficiência)
+        let staticHistory: any[] = [];
+        let staticFreq: Record<string, number> = {};
+
+        let staticData: any = null;
+        try {
+            const staticRes = await fetch(`/data/history/${slug}.json`);
+            if (staticRes.ok) {
+                staticData = await staticRes.json();
+                staticFreq = staticData.stats?.frequency || {};
+                staticHistory = (staticData.draws || []).map((h: any) => ({
+                    concurso: h.c,
+                    data: h.t,
+                    dezenas: h.d,
+                    acumulado: h.a || false
+                }));
+            }
+        } catch (e) {
+            console.warn(`[Stats] No static snapshot for ${slug}`);
+        }
+
+        // 2. Buscar o "Delta" ou Fallback Total no Firestore
+        const lastStaticConcurso = staticHistory[0]?.concurso || 0;
         const drawsRef = collection(db, 'games', dbName, 'draws');
-        const q = query(drawsRef, orderBy('concurso', 'desc'), limit(limitCount));
+
+        // Se temos snapshot, buscamos apenas concursos novos (concurso > lastStatic)
+        // Se não temos, buscamos o limitCount padrão
+        const q = staticHistory.length > 0
+            ? query(drawsRef, where('concurso', '>', lastStaticConcurso), orderBy('concurso', 'desc'))
+            : query(drawsRef, orderBy('concurso', 'desc'), limit(limitCount));
+
         const snapshot = await getDocs(q);
 
-        if (snapshot.empty) return null;
+        if (snapshot.empty && staticHistory.length === 0) return null;
 
-        const frequenciaMap: Record<string, number> = {};
+        const frequenciaMap: Record<string, number> = { ...staticFreq };
         const ultimosResultados: StatsData['ultimosResultados'] = [];
-        let totalPares = 0;
-        let totalImpares = 0;
-        let totalNumeros = 0;
+
+        // Base counts from static data
+        let totalPares = staticData?.stats?.evenOdd?.even || 0;
+        let totalImpares = staticData?.stats?.evenOdd?.odd || 0;
+        let totalNumbers = staticData?.stats?.totalNumbersAnalyzed || 0;
+
         const ultimaAparicao: Record<string, number> = {};
         let index = 0;
 
+        // Processamos os do Firestore (são os mais recentes)
         snapshot.forEach((docSnap) => {
             const data = docSnap.data();
             const dezenas: string[] = data.dezenas || [];
@@ -124,49 +161,69 @@ export async function getStatsClient(slug: string, limitCount: number = 100): Pr
                 concurso: data.concurso,
                 data: data.data,
                 dezenas: dezenas,
-                acumulado: data.acumulado
+                acumulado: data.acumulado || false
             });
 
-            dezenas.forEach((d: string) => {
-                frequenciaMap[d] = (frequenciaMap[d] || 0) + 1;
+            const isNew = data.concurso > (staticHistory[0]?.concurso || 0);
+
+            dezenas.forEach((dRaw: string) => {
+                const n = parseInt(dRaw);
+                if (isNaN(n)) return;
+                const d = n.toString().padStart(2, '0');
+
+                if (isNew) {
+                    frequenciaMap[d] = (frequenciaMap[d] || 0) + 1;
+                    if (n % 2 === 0) totalPares++;
+                    else totalImpares++;
+                    totalNumbers++;
+                }
 
                 if (!ultimaAparicao[d]) {
                     ultimaAparicao[d] = index;
                 }
-
-                const num = parseInt(d);
-                if (!isNaN(num)) {
-                    if (num % 2 === 0) totalPares++;
-                    else totalImpares++;
-                }
-                totalNumeros++;
             });
             index++;
         });
+
+        // Se o Firestore não brought 100, mas temos staticHistory, completamos
+        if (ultimosResultados.length < limitCount && staticHistory.length > 0) {
+            const needed = limitCount - ultimosResultados.length;
+            const lastConcurso = ultimosResultados[ultimosResultados.length - 1]?.concurso || 9999999;
+            const extra = staticHistory.filter(h => h.concurso < lastConcurso).slice(0, needed);
+            ultimosResultados.push(...extra);
+        }
 
         const frequenciaArray: FrequencyData[] = Object.entries(frequenciaMap)
             .map(([number, frequency]) => ({ number, frequency }))
             .sort((a, b) => b.frequency - a.frequency);
 
-        const maisFrequentes = frequenciaArray.slice(0, 10).map(f => f.number);
-        const menosFrequentes = frequenciaArray.slice(-10).reverse().map(f => f.number);
+        const maisFrequentes = frequenciaArray.slice(0, 15).map(f => f.number);
+        const menosFrequentes = frequenciaArray.slice(-15).reverse().map(f => f.number);
 
         const mediaAtraso: Record<string, number> = {};
         Object.entries(ultimaAparicao).forEach(([num, pos]) => {
             mediaAtraso[num] = pos;
         });
 
+        // Calculate total contests correctly: static count + ONLY the new ones from Firestore
+        const newContestsCount = snapshot.docs.filter(d => d.data().concurso > (staticHistory[0]?.concurso || 0)).length;
+        const totalConcursosTotal = (staticData?.count || staticHistory.length) + newContestsCount;
+
         return {
             frequencia: frequenciaArray,
             ultimosResultados,
-            totalConcursos: snapshot.size,
+            totalConcursos: totalConcursosTotal,
             maisFrequentes,
             menosFrequentes,
             mediaAtraso,
             parImpar: {
-                pares: totalNumeros > 0 ? Math.round((totalPares / totalNumeros) * 100) : 0,
-                impares: totalNumeros > 0 ? Math.round((totalImpares / totalNumeros) * 100) : 0
-            }
+                pares: totalNumbers > 0 ? Math.round((totalPares / totalNumbers) * 100) : 0,
+                impares: totalNumbers > 0 ? Math.round((totalImpares / totalNumbers) * 100) : 0
+            },
+            mediaRepeticoes: staticData?.stats?.mediaRepeticoes,
+            maiorStreak: staticData?.stats?.maiorStreak,
+            totalAcumulados: staticData?.stats?.totalAcumulados,
+            totalConsecutivos: staticData?.stats?.totalConsecutivos
         };
     } catch (e) {
         console.error("Error fetching stats:", e);
