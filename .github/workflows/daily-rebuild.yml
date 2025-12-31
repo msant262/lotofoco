@@ -1,0 +1,46 @@
+name: Daily Data Rebuild
+
+on:
+  schedule:
+    # Roda todo dia às 3h da manhã (UTC)
+    - cron: '0 3 * * *'
+  
+  # Permite trigger manual
+  workflow_dispatch:
+
+jobs:
+  rebuild-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate static data
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/build-static-data.js
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'actions@github.com'
+          git add public/data/history/*.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update lottery data [skip ci]" && git push)
+
+      - name: Trigger Cloudflare Pages Deploy
+        if: success()
+        run: |
+          curl -X POST "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${{ secrets.CLOUDFLARE_PROJECT_NAME }}/deployments" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{"branch":"main"}'
