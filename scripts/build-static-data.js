@@ -15,9 +15,22 @@ const fs = require('fs');
 const path = require('path');
 
 // Initialize Firebase Admin
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
-    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-    : require('../firebase-service-account.json'); // Fallback para desenvolvimento
+let serviceAccount;
+
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    // Production: Use environment variable
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else {
+    // Development: Try to load from file
+    const serviceAccountPath = path.join(__dirname, '..', 'firebase-service-account.json');
+    if (fs.existsSync(serviceAccountPath)) {
+        serviceAccount = require(serviceAccountPath);
+    } else {
+        console.log('⚠️  No Firebase credentials found. Skipping static data generation.');
+        console.log('   This is OK for builds without data updates.');
+        process.exit(0);
+    }
+}
 
 initializeApp({
     credential: cert(serviceAccount)
