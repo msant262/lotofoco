@@ -1,20 +1,22 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import { LOTTERIES } from '@/lib/config/lotteries';
 import { cn } from '@/lib/utils';
 import { LotteryHeader } from '@/components/lottery/lottery-header';
 import { LotteryBallGrid } from '@/components/lottery/lottery-ball-grid';
 import { VolanteGrid } from '@/components/lottery/volante-grid';
-import { LotecaGrid } from '@/components/lottery/loteca-grid';
+
 import { LotteryStats } from '@/components/lottery/lottery-stats';
 import { ResultsDialog } from '@/components/lottery/results-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Sparkles, Trash2, Plus, Minus, Layers, Loader2 } from 'lucide-react';
+import { Sparkles, Trash2, Plus, Minus, Layers, Loader2, Lock, Crown } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
-import { saveBet, GameItem } from '@/lib/firebase/bets-client';
+import { saveBet, GameItem, getNextConcurso } from '@/lib/firebase/bets-client';
 import { SuccessModal } from '@/components/lottery/success-modal';
+import { useBettingLimits } from '@/hooks/use-betting-limits';
+import { Chip, Tooltip } from '@heroui/react';
 
 interface GamePageClientProps {
     gameSlug: string;
@@ -24,6 +26,7 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
     const slug = gameSlug;
     const config = LOTTERIES[slug];
     const { user } = useAuth();
+    const { maxGames, isPro, isLoading: limitsLoading } = useBettingLimits();
 
     // Default Main Quantity & Games Count
     const [quantity, setQuantity] = useState(config?.minBet || 15);
@@ -38,7 +41,7 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
     // Manual Selection State
     const [selectedNumbers, setSelectedNumbers] = useState<string[]>([]);
     const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
-    const [lotecaOutcomes, setLotecaOutcomes] = useState<Record<number, string>>({});
+
 
     // Prediction Result
     const [predictions, setPredictions] = useState<GameItem[]>([]);
@@ -80,9 +83,7 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
         }
     }
 
-    const handleLotecaToggle = (matchIndex: number, outcome: string) => {
-        setLotecaOutcomes(prev => ({ ...prev, [matchIndex]: outcome }));
-    }
+
 
     const handleGenerate = () => {
         setIsRevealing(true);
@@ -92,12 +93,7 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
         startTransition(async () => {
             await new Promise(r => setTimeout(r, 600));
 
-            // Loteca Logic MOCK
-            if (config.layoutType === 'soccer') {
-                setHasRevealed(true);
-                setIsRevealing(false);
-                return;
-            }
+
 
             const extrasNeeded = extraQuantity - selectedExtras.length;
             const generatedGames: GameItem[] = [];
@@ -111,8 +107,10 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
                         body: JSON.stringify({
                             userId: user?.uid || 'demo',
                             game: config.name,
+                            slug: config.slug,
                             quantity,
                             extraQuantity: extrasNeeded,
+                            extraRange: config.extraRange || 0,
                             fixedNumbers: selectedNumbers
                         })
                     });
@@ -128,7 +126,8 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
 
                         generatedGames.push({
                             main: aiMain,
-                            extras: finalExtras
+                            extras: finalExtras,
+                            explanation: result.explanation
                         });
                     }
                 } catch (err) {
@@ -150,8 +149,12 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
         }
         setIsSaving(true);
         try {
+            // Buscar o próximo concurso automaticamente
+            const nextConcurso = await getNextConcurso(slug);
+            console.log(`🎯 Próximo concurso para ${config.name}: ${nextConcurso}`);
+
             // Save as BATCH (Single document with array of games)
-            await saveBet(user.uid, slug, config.name, predictions);
+            await saveBet(user.uid, slug, config.name, predictions, nextConcurso || undefined);
 
             setIsSaving(false);
             setShowResults(false);
@@ -200,9 +203,7 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
     };
 
     const remainingMain = quantity - selectedNumbers.length;
-    const isReady = config.layoutType === 'soccer'
-        ? Object.keys(lotecaOutcomes).length === 14
-        : (remainingMain === 0 && (extraQuantity - selectedExtras.length) === 0);
+    const isReady = (remainingMain === 0 && (extraQuantity - selectedExtras.length) === 0);
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24">
@@ -213,23 +214,15 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
 
                     {/* LEFT COLUMN */}
                     <div className="xl:col-span-8 space-y-8 order-2 xl:order-1">
-                        {config.layoutType === 'soccer' ? (
-                            <LotecaGrid
-                                config={config}
-                                selectedOutcomes={lotecaOutcomes}
-                                onToggle={handleLotecaToggle}
-                            />
-                        ) : (
-                            <VolanteGrid
-                                config={config}
-                                selectedNumbers={selectedNumbers}
-                                onToggle={handleNumberToggle}
-                                maxSelection={quantity}
-                                selectedExtras={selectedExtras}
-                                onToggleExtra={handleExtraToggle}
-                                maxExtra={extraQuantity}
-                            />
-                        )}
+                        <VolanteGrid
+                            config={config}
+                            selectedNumbers={selectedNumbers}
+                            onToggle={handleNumberToggle}
+                            maxSelection={quantity}
+                            selectedExtras={selectedExtras}
+                            onToggleExtra={handleExtraToggle}
+                            maxExtra={extraQuantity}
+                        />
 
                         <div className="flex justify-end">
                             {(selectedNumbers.length > 0) && (
@@ -270,43 +263,65 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
                         <Card className="bg-slate-900 border-slate-800 p-6 sticky top-24 z-30 shadow-2xl ring-1 ring-white/10">
                             <div className="space-y-6">
                                 {/* QUANTITY SELECTOR */}
-                                {config.layoutType !== 'soccer' && (
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <label className="text-[10px] font-bold text-slate-500 uppercase">Quantidade de Números</label>
-                                            <span className="text-[10px] font-bold text-emerald-500">{quantity} selecionados</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
-                                            <button
-                                                onClick={() => quantity > config.minBet && setQuantity(q => q - 1)}
-                                                className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center disabled:opacity-50"
-                                                disabled={quantity <= config.minBet}
-                                            >
-                                                <Minus className="w-4 h-4" />
-                                            </button>
-                                            <div className="flex-1 text-center font-bold text-xl text-white">
-                                                {quantity}
-                                            </div>
-                                            <button
-                                                onClick={() => quantity < config.maxBet && setQuantity(q => q + 1)}
-                                                className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center disabled:opacity-50"
-                                                disabled={quantity >= config.maxBet}
-                                            >
-                                                <Plus className="w-4 h-4" />
-                                            </button>
-                                        </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex justify-between">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Quantidade de Números</label>
+                                        <span className="text-[10px] font-bold text-emerald-500">{quantity} selecionados</span>
                                     </div>
-                                )}
+                                    <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                                        <button
+                                            onClick={() => quantity > config.minBet && setQuantity(q => q - 1)}
+                                            className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center disabled:opacity-50"
+                                            disabled={quantity <= config.minBet}
+                                        >
+                                            <Minus className="w-4 h-4" />
+                                        </button>
+                                        <div className="flex-1 text-center font-bold text-xl text-white">
+                                            {quantity}
+                                        </div>
+                                        <button
+                                            onClick={() => quantity < config.maxBet && setQuantity(q => q + 1)}
+                                            className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center disabled:opacity-50"
+                                            disabled={quantity >= config.maxBet}
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
 
                                 {/* GAMES COUNT SELECTOR */}
                                 <div className="space-y-2">
-                                    <div className="flex justify-between">
-                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Quantidade de Jogos (Bilhetes)</label>
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Quantidade de Jogos</label>
+                                        {!isPro && (
+                                            <Tooltip content="Assine o plano Pro para gerar até 20 jogos por vez">
+                                                <Chip
+                                                    size="sm"
+                                                    variant="flat"
+                                                    className="bg-yellow-500/20 text-yellow-400 font-bold cursor-pointer"
+                                                    startContent={<Lock className="w-3 h-3" />}
+                                                >
+                                                    Máx: {maxGames}
+                                                </Chip>
+                                            </Tooltip>
+                                        )}
+                                        {isPro && (
+                                            <Chip
+                                                size="sm"
+                                                variant="flat"
+                                                className="bg-purple-500/20 text-purple-400 font-bold"
+                                                startContent={<Crown className="w-3 h-3" />}
+                                            >
+                                                PRO
+                                            </Chip>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
                                         <button
                                             onClick={() => gamesCount > 1 && setGamesCount(g => g - 1)}
-                                            className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center "
+                                            className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center"
                                         >
                                             <Minus className="w-4 h-4" />
                                         </button>
@@ -314,12 +329,21 @@ export default function GamePageClient({ gameSlug }: GamePageClientProps) {
                                             {gamesCount}
                                         </div>
                                         <button
-                                            onClick={() => gamesCount < 20 && setGamesCount(g => g + 1)}
-                                            className="w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center"
+                                            onClick={() => gamesCount < maxGames && setGamesCount(g => g + 1)}
+                                            disabled={gamesCount >= maxGames}
+                                            className={cn(
+                                                "w-10 h-10 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center",
+                                                gamesCount >= maxGames && "opacity-50 cursor-not-allowed"
+                                            )}
                                         >
                                             <Plus className="w-4 h-4" />
                                         </button>
                                     </div>
+                                    {gamesCount >= maxGames && !isPro && (
+                                        <p className="text-xs text-yellow-500/70 text-center">
+                                            ⭐ Assine o Pro para gerar até 20 jogos
+                                        </p>
+                                    )}
                                 </div>
 
                                 <Button

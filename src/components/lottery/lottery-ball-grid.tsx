@@ -1,17 +1,19 @@
 'use client';
 
-import { LotteryConfig } from "@/lib/config/lotteries";
+import { LotteryConfig, SOCCER_TEAMS } from "@/lib/config/lotteries";
 import { cn } from "@/lib/utils";
 import anime from "animejs/lib/anime.es.js";
 import { useEffect, useRef } from "react";
+import { Heart } from "lucide-react";
 
 interface LotteryBallGridProps {
     config: LotteryConfig;
     numbers: string[];
     isRevealing: boolean;
+    matchedNumbers?: string[];
 }
 
-export function LotteryBallGrid({ config, numbers, isRevealing }: LotteryBallGridProps) {
+export function LotteryBallGrid({ config, numbers, isRevealing, matchedNumbers = [] }: LotteryBallGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Animation Logic
@@ -59,18 +61,25 @@ export function LotteryBallGrid({ config, numbers, isRevealing }: LotteryBallGri
     }, [isRevealing, numbers]);
 
     // Renders
-    const renderStandardBall = (num: string, idx: number, isExtra = false) => (
-        <div key={`${isExtra ? 'extra' : 'std'}-${idx}`} className="loto-ball relative group flex flex-col items-center">
-            <div className={cn(
-                "w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center shadow-lg border-2 border-white/20",
-                "bg-gradient-to-br from-slate-50 to-slate-200 text-slate-900 font-bold text-2xl md:text-3xl font-mono",
-                isExtra && "from-yellow-200 to-yellow-400 border-yellow-500/50" // Different look for Trevos/Months
-            )}>
-                <span className="loto-ball-text">{isRevealing ? '00' : num}</span>
+    const renderStandardBall = (num: string, idx: number, isExtra = false) => {
+        const isMatched = !isExtra && matchedNumbers.includes(num); // Only match main numbers usually
+
+        return (
+            <div key={`${isExtra ? 'extra' : 'std'}-${idx}`} className="loto-ball relative group flex flex-col items-center">
+                <div className={cn(
+                    "w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center shadow-lg border-2 transition-colors duration-500",
+                    isMatched
+                        ? "bg-emerald-500 border-emerald-400 text-white shadow-emerald-500/50 scale-110 z-10"
+                        : "bg-gradient-to-br from-slate-50 to-slate-200 border-white/20 text-slate-900",
+                    "font-bold text-2xl md:text-3xl font-mono",
+                    isExtra && "from-yellow-200 to-yellow-400 border-yellow-500/50 text-slate-900"
+                )}>
+                    <span className="loto-ball-text">{isRevealing ? '00' : num}</span>
+                </div>
+                {isExtra && <span className="text-[10px] uppercase font-bold text-slate-500 mt-2 tracking-wide">{config.extraName?.slice(0, -1)}</span>}
             </div>
-            {isExtra && <span className="text-[10px] uppercase font-bold text-slate-500 mt-2 tracking-wide">{config.extraName?.slice(0, -1)}</span>}
-        </div>
-    );
+        );
+    };
 
     // Layout Logic
     if (config.layoutType === 'standard' || config.layoutType === 'composite') {
@@ -110,6 +119,12 @@ export function LotteryBallGrid({ config, numbers, isRevealing }: LotteryBallGri
                 mainSet = numbers.slice(0, numbers.length - 1);
                 extraSet = numbers.slice(numbers.length - 1);
             }
+        } else if (config.slug === 'timemania') {
+            // Timemania: 10 nums + 1 Team (usually)
+            if (numbers.length >= 11) {
+                mainSet = numbers.slice(0, numbers.length - 1);
+                extraSet = numbers.slice(numbers.length - 1);
+            }
         }
 
         return (
@@ -124,7 +139,25 @@ export function LotteryBallGrid({ config, numbers, isRevealing }: LotteryBallGri
                             {config.extraName || 'Extras'}
                         </div>
                         <div className="flex flex-wrap gap-4 justify-center">
-                            {extraSet.map((n, i) => renderStandardBall(n, i, true))}
+                            {extraSet.map((n, i) => {
+                                if (config.slug === 'timemania') {
+                                    const teamIdx = parseInt(n) - 1;
+                                    const teamName = SOCCER_TEAMS[teamIdx] || `Time ${n}`;
+
+                                    return (
+                                        <div key={i} className="flex flex-col items-center gap-2">
+                                            <div className="w-16 h-16 rounded-b-xl rounded-t-sm bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-400 shadow-lg relative overflow-hidden group">
+                                                <div className="absolute inset-0 bg-[url('/img/shield-detect.png')] opacity-10"></div>
+                                                <Heart className="w-8 h-8 text-white fill-white animate-pulse" />
+                                            </div>
+                                            <div className="bg-slate-800 px-3 py-1 rounded-full border border-slate-700 max-w-[100px] truncate">
+                                                <span className="text-[10px] font-bold text-white uppercase" title={teamName}>{teamName}</span>
+                                            </div>
+                                        </div>
+                                    )
+                                }
+                                return renderStandardBall(n, i, true);
+                            })}
                         </div>
                     </div>
                 )}
@@ -137,14 +170,22 @@ export function LotteryBallGrid({ config, numbers, isRevealing }: LotteryBallGri
         // We receive e.g. ["1", "5", "9", "2", "3", "4", "0"].
         return (
             <div className="grid grid-cols-7 gap-2 md:gap-4 p-4 bg-lime-900/10 rounded-xl border border-lime-500/20">
-                {numbers.map((num, i) => (
-                    <div key={i} className="flex flex-col items-center gap-2">
-                        <span className="text-[10px] text-slate-500 font-mono uppercase">Col {i + 1}</span>
-                        <div className="w-10 h-16 md:w-14 md:h-20 bg-gradient-to-b from-lime-400 to-lime-600 rounded-lg flex items-center justify-center shadow-lg border-b-4 border-lime-800 group-hover:translate-y-1 transition-transform">
-                            <span className="loto-ball-text text-xl md:text-3xl font-black text-white">{isRevealing ? '?' : num}</span>
+                {numbers.map((num, i) => {
+                    const isMatched = matchedNumbers.includes(num); // Simplifying match logic for columns
+                    return (
+                        <div key={i} className="flex flex-col items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-mono uppercase">Col {i + 1}</span>
+                            <div className={cn(
+                                "w-10 h-16 md:w-14 md:h-20 rounded-lg flex items-center justify-center shadow-lg border-b-4 transition-transform",
+                                isMatched
+                                    ? "bg-emerald-500 border-emerald-700 text-white"
+                                    : "bg-gradient-to-b from-lime-400 to-lime-600 border-lime-800 text-white"
+                            )}>
+                                <span className="loto-ball-text text-xl md:text-3xl font-black">{isRevealing ? '?' : num}</span>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         )
     }

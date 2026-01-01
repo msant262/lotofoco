@@ -13,7 +13,7 @@ const DB_NAMES: Record<string, string> = {
     'super-sete': 'Super-Sete',
     'mais-milionaria': '+Milionária',
     'federal': 'Federal',
-    'loteca': 'Loteca',
+
     'mega-da-virada': 'Mega-Sena'
 };
 
@@ -249,6 +249,7 @@ export async function getLotteryInfoClient(slug: string) {
 
             return {
                 prize: nextPrize > 0 ? formatCurrency(nextPrize) : "Apurando...",
+                rawValue: nextPrize, // Added for comparison logic
                 contest: nextConcurso ? String(nextConcurso) : String(data.latestConcurso || '...'),
                 date: nextDate || data.latestDate || '...',
                 dezenas: data.latestDezenas || [],

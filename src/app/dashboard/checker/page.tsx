@@ -15,7 +15,7 @@ import {
     Link as HeroLink
 } from "@heroui/react";
 import { useAuth } from '@/components/providers/auth-provider';
-import { getUserBets, SavedBet } from '@/lib/firebase/bets-client';
+import { getUserBets, SavedBet, updateBetStatus } from '@/lib/firebase/bets-client';
 import {
     CheckCircle2,
     Trophy,
@@ -92,6 +92,39 @@ export default function CheckerPage() {
         finally { setLoading(false); }
     };
 
+    const determineBetContext = (bet: SavedBet, resultsMap: Record<string, GameResult>) => {
+        const latestResult = resultsMap[`${bet.gameSlug}-latest`];
+        let displayedContest = '???';
+        let isFutureBet = false;
+        let validResult: GameResult | null = null;
+
+        const betDate = new Date(bet.createdAt?.seconds * 1000);
+
+        if (latestResult && latestResult.data) {
+            const drawDate = parseDateValues(latestResult.data);
+            if (drawDate && betDate > drawDate) {
+                displayedContest = (latestResult.concurso + 1).toString();
+                isFutureBet = true;
+            } else {
+                displayedContest = latestResult.concurso.toString();
+                isFutureBet = false;
+            }
+        } else if (bet.concurso) {
+            displayedContest = bet.concurso.toString();
+        }
+
+        if (!isFutureBet) {
+            const key = `${bet.gameSlug}-${displayedContest}`;
+            if (resultsMap[key]) {
+                validResult = resultsMap[key];
+            } else if (latestResult && latestResult.concurso.toString() === displayedContest) {
+                validResult = latestResult;
+            }
+        }
+
+        return { displayedContest, isFutureBet, validResult };
+    };
+
     const handleCheckAll = async () => {
         setChecking(true);
 
@@ -99,7 +132,6 @@ export default function CheckerPage() {
         const seen = new Set<string>();
 
         bets.forEach(bet => {
-            // Always fetch based on assigned contest if present
             if (bet.concurso) {
                 const key = `${bet.gameSlug}-${bet.concurso}`;
                 if (!seen.has(key)) {
@@ -107,7 +139,6 @@ export default function CheckerPage() {
                     tasks.push({ slug: bet.gameSlug, concurso: bet.concurso });
                 }
             }
-            // Ensure we always have latest for "Future" projection logic
             const latestKey = `${bet.gameSlug}-latest`;
             if (!seen.has(latestKey)) {
                 seen.add(latestKey);
@@ -115,6 +146,7 @@ export default function CheckerPage() {
             }
         });
 
+        // 1. Fetch Fresh Results
         const newResults: Record<string, GameResult> = {};
         await Promise.all(tasks.map(async (task) => {
             try {
@@ -123,17 +155,50 @@ export default function CheckerPage() {
                 if (res.ok) {
                     const data = await res.json();
                     if (data.dezenas) {
-                        const key = `${task.slug}-${task.concurso || 'latest'}`;
+                        const key = task.concurso ? `${task.slug}-${task.concurso}` : `${task.slug}-latest`;
                         newResults[key] = data;
                     }
                 }
             } catch (e) { console.error(e); }
         }));
 
-        setResults(prev => ({ ...prev, ...newResults }));
-        setChecking(false);
+        const combinedResults = { ...results, ...newResults };
+        setResults(combinedResults);
 
-        // Trigger WIN Animations
+        // 2. Evaluate and Update Status
+        if (user?.uid) {
+            const updates = bets.map(async (bet) => {
+                const { isFutureBet, validResult } = determineBetContext(bet, combinedResults);
+
+                let newStatus: 'pending' | 'won' | 'lost' = 'pending';
+
+                if (isFutureBet || !validResult) {
+                    newStatus = 'pending';
+                } else {
+                    // Check logic
+                    const gamesToCheck = bet.games?.length ? bet.games : (bet.numbers ? [{ main: bet.numbers }] : []);
+                    const resultDezenas = validResult.dezenas;
+
+                    let isWinner = false;
+                    gamesToCheck.forEach(g => {
+                        const { count } = getMatchInfo(g.main, resultDezenas);
+                        if (getPrizeStatus(bet.gameSlug, count).isWin) isWinner = true;
+                    });
+
+                    newStatus = isWinner ? 'won' : 'lost';
+                }
+
+                if (bet.status !== newStatus && bet.id) {
+                    await updateBetStatus(user.uid, bet.id, newStatus);
+                }
+            });
+
+            await Promise.all(updates);
+            // Reload to reflect status changes
+            await loadBets();
+        }
+
+        setChecking(false);
         setTimeout(() => triggerWinAnimations(), 100);
     };
 
@@ -203,6 +268,8 @@ export default function CheckerPage() {
 
     const filteredBets = bets.filter(bet => {
         if (selectedTab === 'all') return true;
+        if (selectedTab === 'pending') return bet.status === 'pending';
+        if (selectedTab === 'finished') return bet.status === 'won' || bet.status === 'lost';
         return true;
     });
 
@@ -414,6 +481,28 @@ export default function CheckerPage() {
                                     <Divider className="bg-white/5 my-2 w-[95%] mx-auto" />
 
                                     <CardBody className="p-8 pt-4 relative z-10">
+                                        {/* Official Result Display */}
+                                        {validResult && (
+                                            <div className="bg-black/30 p-5 rounded-2xl mb-8 border border-white/5">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Trophy size={14} className="text-yellow-400" />
+                                                    <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">
+                                                        Resultado Oficial (Conc. {validResult.concurso})
+                                                    </p>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {validResult.dezenas.map((d, idx) => (
+                                                        <div
+                                                            key={idx}
+                                                            className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center font-bold text-white text-xs shadow-lg shadow-emerald-500/20"
+                                                        >
+                                                            {d}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                             {gamesToCheck.map((game, idx) => {
                                                 const matchInfo = validResult ? getMatchInfo(game.main, resultDezenas) : null;
@@ -423,35 +512,35 @@ export default function CheckerPage() {
                                                     <div
                                                         key={idx}
                                                         className={`
-                                                            relative p-5 rounded-2xl border transition-all duration-300
+                                                            relative p-6 rounded-3xl border transition-all duration-300
                                                             ${status.isWin
                                                                 ? 'bg-yellow-500/10 border-yellow-500/40 shadow-[inset_0_0_20px_rgba(234,179,8,0.1)]'
                                                                 : 'bg-black/20 border-white/5 hover:bg-black/30 group-hover:border-white/10'
                                                             }
                                                         `}
                                                     >
-                                                        <div className="flex justify-between items-center mb-4">
+                                                        <div className="flex justify-between items-center mb-5">
                                                             <span className="text-xs font-black uppercase tracking-widest text-slate-500">
                                                                 Jogo {idx + 1}
                                                             </span>
                                                             {status.isWin && (
-                                                                <div className="flex items-center gap-1.5 text-yellow-400 font-black text-xs uppercase tracking-wider bg-yellow-400/10 px-2 py-0.5 rounded-md border border-yellow-400/20">
+                                                                <div className="flex items-center gap-1.5 text-yellow-400 font-black text-xs uppercase tracking-wider bg-yellow-400/10 px-2.5 py-1 rounded-lg border border-yellow-400/20 shadow-[0_0_10px_rgba(250,204,21,0.2)]">
                                                                     <Trophy size={11} className="fill-yellow-400" />
                                                                     {status.label}
                                                                 </div>
                                                             )}
                                                         </div>
 
-                                                        <div className="flex flex-wrap gap-2.5">
+                                                        <div className="flex flex-wrap gap-3">
                                                             {game.main.map((num, i) => {
                                                                 const isMatched = matchInfo?.matchedNums.includes(parseInt(num).toString());
                                                                 return (
                                                                     <div
                                                                         key={i}
                                                                         className={`
-                                                                            w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-500 border
+                                                                            w-12 h-12 rounded-full flex items-center justify-center text-lg font-black transition-all duration-500 border
                                                                             ${isMatched
-                                                                                ? 'match-ball-pending bg-emerald-500 text-white border-emerald-400 scale-110 shadow-lg shadow-emerald-500/50'
+                                                                                ? 'match-ball-pending bg-emerald-500 text-white border-emerald-400 scale-110 shadow-[0_0_15px_rgba(16,185,129,0.5)] z-10'
                                                                                 : 'bg-slate-800/40 text-slate-400 border-white/5'
                                                                             }
                                                                         `}

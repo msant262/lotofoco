@@ -14,12 +14,22 @@ const { getFirestore } = require('firebase-admin/firestore');
 const fs = require('fs');
 const path = require('path');
 
+// Try to load .env.local
+require('dotenv').config({ path: path.resolve(__dirname, '../.env.local') });
+
 // Initialize Firebase Admin
 let serviceAccount;
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Production: Use environment variable
+    // Production: Use full JSON environment variable
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+    // Development/Vercel: Use individual variables
+    serviceAccount = {
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    };
 } else {
     // Development: Try to load from file
     const serviceAccountPath = path.join(__dirname, '..', 'firebase-service-account.json');
@@ -27,6 +37,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         serviceAccount = require(serviceAccountPath);
     } else {
         console.log('⚠️  No Firebase credentials found. Skipping static data generation.');
+        console.log('   (Checked FIREBASE_SERVICE_ACCOUNT, individual vars, and local JSON)');
         console.log('   This is OK for builds without data updates.');
         process.exit(0);
     }
