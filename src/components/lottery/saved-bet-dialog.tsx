@@ -1,328 +1,459 @@
 'use client';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { LotteryBallGrid } from "./lottery-ball-grid";
+import { useState, useEffect } from "react";
 import { LOTTERIES } from "@/lib/config/lotteries";
-import { SavedBet, GameItem } from "@/lib/firebase/bets-client";
-import { Copy, Mail, MessageSquare, Printer, Check, Lock, ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { SavedBet } from "@/lib/firebase/bets-client";
+import { DrawDetails } from "@/lib/firebase/games-client";
+import { LotteryBallGrid } from "./lottery-ball-grid";
+import { DownloadLotteryTicket, PrintLotteryTicket } from "./lottery-ticket-pdf";
+import anime from "animejs/lib/anime.es.js";
 
+import {
+    Modal,
+    ModalContent,
+    ModalHeader,
+    ModalBody,
+    ModalFooter,
+    Button,
+    Chip,
+    Divider,
+    Tooltip,
+    Accordion,
+    AccordionItem,
+    Card,
+    CardBody,
+    CardHeader,
+    Progress
+} from "@heroui/react";
+
+import {
+    Printer,
+    Mail,
+    Copy,
+    Check,
+    Trophy,
+    Sparkles,
+    ChevronDown,
+    Star,
+    Download
+} from "lucide-react";
+
+// ==================== WHATSAPP ICON ====================
+const WhatsAppIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+);
+
+// ==================== PROPS ====================
 interface SavedBetDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     bet: SavedBet | null;
-    plan: string; // 'free' | 'pro'
+    plan: string;
+    result?: DrawDetails | null;
 }
 
-export function SavedBetDialog({ open, onOpenChange, bet, plan }: SavedBetDialogProps) {
-    const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+// ==================== MODAL ====================
+export function SavedBetDialog({ open, onOpenChange, bet, plan, result }: SavedBetDialogProps) {
+    const [copiedGameIndex, setCopiedGameIndex] = useState<number | null>(null);
+    const [copiedAll, setCopiedAll] = useState(false);
+
+    // ========== ANIMAÇÃO DE ENTRADA (ANTES DO EARLY RETURN) ==========
+    useEffect(() => {
+        if (open && bet) {
+            setTimeout(() => {
+                anime({
+                    targets: '.modal-game-card',
+                    translateY: [20, 0],
+                    opacity: [0, 1],
+                    delay: anime.stagger(100),
+                    duration: 500,
+                    easing: 'easeOutCubic'
+                });
+
+                anime({
+                    targets: '.modal-action-btn',
+                    scale: [0.8, 1],
+                    opacity: [0, 1],
+                    delay: anime.stagger(50, { start: 300 }),
+                    duration: 400,
+                    easing: 'easeOutBack'
+                });
+            }, 100);
+        }
+    }, [open, bet]);
 
     if (!bet) return null;
 
-    const gameConfig = Object.values(LOTTERIES).find(l => l.slug === bet.gameSlug);
+    const lottery = Object.values(LOTTERIES).find(l => l.slug === bet.gameSlug);
+    const color = lottery?.hexColor || '#10b981';
     const isPro = plan === 'pro';
 
-    // Normalize data to batch
-    const games: GameItem[] = bet.games || (bet.numbers ? [{ main: bet.numbers }] : []);
+    console.log('🔐 Modal - User Plan:', plan, '| isPro:', isPro);
 
-    const handleCopy = (numbers: string[], index: number) => {
-        navigator.clipboard.writeText(numbers.join(', '));
-        setCopiedIndex(index);
-        setTimeout(() => setCopiedIndex(null), 2000);
+    const games = bet.games || (bet.numbers ? [{ main: bet.numbers }] : []);
+    const drawnNumbers = result?.dezenas || [];
+    const hasResult = drawnNumbers.length > 0;
+
+    // ========== CALCULAR ACERTOS TOTAIS ==========
+    let totalHits = 0;
+    let maxHitsInGame = 0;
+    if (hasResult) {
+        games.forEach(game => {
+            const hits = game.main.filter(n =>
+                drawnNumbers.some(d => parseInt(d) === parseInt(n))
+            ).length;
+            totalHits += hits;
+            if (hits > maxHitsInGame) maxHitsInGame = hits;
+        });
+    }
+
+    const winPercentage = hasResult ? Math.round((totalHits / (games.length * 5)) * 100) : 0;
+
+    // ========== COPIAR JOGO ==========
+    const copyGame = (gameNumbers: string[], index: number) => {
+        const text = gameNumbers.join(', ');
+        navigator.clipboard.writeText(text);
+        setCopiedGameIndex(index);
+        setTimeout(() => setCopiedGameIndex(null), 2000);
     };
 
-    const handlePrint = (singleGameIndex?: number) => {
-        const gamesToPrint = singleGameIndex !== undefined ? [games[singleGameIndex]] : games;
+    // ========== COPIAR TODOS ==========
+    const copyAllGames = () => {
+        const allText = games
+            .map((g, i) => `Jogo ${i + 1}: ${g.main.join(', ')}`)
+            .join('\n');
+        navigator.clipboard.writeText(allText);
+        setCopiedAll(true);
+        setTimeout(() => setCopiedAll(false), 2000);
+    };
 
-        const printWindow = window.open('', 'PrintWindow', 'width=400,height=600,top=100,left=100');
-
-        if (printWindow) {
-            // Helper to format extras based on game type
-            const formatExtras = (extras: string[]) => {
-                if (!extras || extras.length === 0) return '';
-                if (bet.gameSlug === 'timemania') return `TIME DO CORAÇÃO: ${extras.join(', ')}`;
-                if (bet.gameSlug === 'dia-de-sorte') return `MÊS DE SORTE: ${extras.join(', ')}`;
-                if (bet.gameSlug === 'mais-milionaria') return `TREVOS: ${extras.join(', ')}`;
-                return `EXTRAS: ${extras.join(', ')}`;
-            };
-
-            printWindow.document.write(`
-                <html>
-                <head>
-                    <title>Comprovante - ${bet.gameName}</title>
-                    <style>
-                        @page { size: 80mm auto; margin: 0; }
-                        body { 
-                            font-family: 'Courier New', Courier, monospace; 
-                            background: white; 
-                            color: black; 
-                            width: 80mm; 
-                            margin: 0 auto; 
-                            padding: 10px;
-                            box-sizing: border-box;
-                        }
-                        .ticket { 
-                            width: 100%; 
-                            border-bottom: 2px dashed #000;
-                            padding-bottom: 20px;
-                            margin-bottom: 20px;
-                            text-align: center;
-                        }
-                        .ticket:last-child { border-bottom: none; }
-                        .logo { 
-                            font-size: 26px; 
-                            font-weight: 900; 
-                            border-bottom: 3px solid #000; 
-                            padding-bottom: 5px; 
-                            margin-bottom: 15px; 
-                            letter-spacing: -1px;
-                        }
-                        .info-row {
-                            display: flex;
-                            justify-content: space-between;
-                            font-size: 10px;
-                            font-weight: bold;
-                            margin-bottom: 2px;
-                            text-transform: uppercase;
-                        }
-                        .game-title { 
-                            font-size: 18px; 
-                            font-weight: bold; 
-                            margin: 15px 0 10px 0; 
-                            text-transform: uppercase;
-                            background: #000;
-                            color: #fff;
-                            padding: 5px;
-                            border-radius: 4px;
-                        }
-                        .bet-block {
-                            margin: 15px 0;
-                            text-align: left;
-                            border: 1px solid #000;
-                            padding: 8px;
-                            border-radius: 4px;
-                        }
-                        .bet-index {
-                            font-size: 10px;
-                            font-weight: bold;
-                            border-bottom: 1px solid #000;
-                            margin-bottom: 5px;
-                            display: block;
-                        }
-                        .numbers { 
-                            font-size: 16px; 
-                            font-weight: bold; 
-                            line-height: 1.4;
-                            word-break: break-all;
-                        }
-                        .extras {
-                            margin-top: 5px;
-                            font-size: 12px;
-                            font-weight: bold;
-                            border-top: 1px dotted #000;
-                            padding-top: 4px;
-                        }
-                        .barcode {
-                             height: 40px;
-                             background: repeating-linear-gradient(90deg, #000, #000 2px, #fff 2px, #fff 4px);
-                             margin: 20px auto 5px auto;
-                             width: 80%;
-                        }
-                        .footer { font-size: 10px; margin-top: 10px; }
-                    </style>
-                </head>
-                <body>
-                    ${gamesToPrint.map((g, i) => {
-                const displayIndex = singleGameIndex !== undefined ? singleGameIndex + 1 : i + 1;
-                const extraText = formatExtras(g.extras || []);
-
-                return `
-                        <div class="ticket">
-                            <div class="logo">LOTOFOCO</div>
-                            
-                            <div class="info-row">
-                                <span>DATA: ${new Date().toLocaleDateString('pt-BR')}</span>
-                                <span>HORA: ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                            <div class="info-row">
-                                <span>CONCURSO: ${bet.concurso || '-----'}</span>
-                                <span>ID: ${bet.id?.substring(0, 6).toUpperCase()}</span>
-                            </div>
-
-                            <div class="game-title">${bet.gameName}</div>
-                            
-                            <div class="bet-block">
-                                <span class="bet-index">JOGO ${displayIndex} DE ${games.length}</span>
-                                <div class="numbers">
-                                    ${g.main.map(n => n.toString().padStart(2, '0')).join(' ')}
-                                </div>
-                                ${extraText ? `<div class="extras">${extraText}</div>` : ''}
-                            </div>
-                            
-                            <div class="footer">
-                                <p>ESTE COMPROVANTE NÃO POSSUI VALOR COMERCIAL.</p>
-                                <div class="barcode"></div>
-                                <p>LOTERIAS CAIXA - SIMULAÇÃO</p>
-                            </div>
-                        </div>
-                        `
-            }).join('')}
-                    <script>
-                        window.onload = () => { setTimeout(() => window.print(), 500); }
-                    </script>
-                </body>
-                </html>
-            `);
-            printWindow.document.close();
+    // ========== AÇÕES ==========
+    const handleEmail = () => {
+        if (!isPro) {
+            alert('⭐ Recurso exclusivo para assinantes PRO');
+            return;
         }
+        const subject = `${bet.gameName} - Concurso ${bet.concurso || 'Pendente'}`;
+        const body = `Meus Jogos:\n\n${games.map((g, i) =>
+            `Jogo ${i + 1}: ${g.main.join(', ')}`
+        ).join('\n')}`;
+        window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     };
 
-    const handleProAction = (action: string) => {
-        if (!isPro) return;
-        alert(`${action} enviado com sucesso! (Simulação)`);
+    const handleWhatsApp = () => {
+        if (!isPro) {
+            alert('⭐ Recurso exclusivo para assinantes PRO');
+            return;
+        }
+        const text = `🎰 *${bet.gameName}*\n` +
+            `${bet.concurso ? `Concurso: ${bet.concurso}` : 'Aguardando sorteio'}\n\n` +
+            games.map((g, i) => `Jogo ${i + 1}: ${g.main.join(', ')}`).join('\n');
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     };
 
+    // ========== RENDER ==========
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="p-0 gap-0 bg-transparent border-0 shadow-none max-w-2xl text-slate-100 overflow-visible sm:rounded-3xl ring-0 focus:outline-none [&>button]:hidden">
+        <Modal
+            isOpen={open}
+            onOpenChange={onOpenChange}
+            size="4xl"
+            scrollBehavior="inside"
+            backdrop="blur"
+            classNames={{
+                base: "bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-3xl",
+                backdrop: "bg-black/80 backdrop-blur-md",
+                closeButton: "hover:bg-white/10 active:bg-white/20 text-white rounded-full"
+            }}
+        >
+            <ModalContent className="border-2 border-white/10 shadow-2xl">
+                {(onClose) => (
+                    <>
+                        {/* ========== HEADER ========== */}
+                        <ModalHeader className="flex flex-col gap-0 pb-0 pt-8 px-8">
+                            {/* Hero Section */}
+                            <div className="relative overflow-hidden rounded-3xl p-6 mb-6"
+                                style={{
+                                    background: `linear-gradient(135deg, ${color}20, ${color}10)`
+                                }}
+                            >
+                                <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent" />
 
-                {/* Close Button placed outside or floating relative - RED */}
-                <div className="absolute -top-12 right-0 sm:-right-12 z-50">
-                    <button
-                        onClick={() => onOpenChange(false)}
-                        className="w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center transition-colors shadow-lg border border-white/10"
-                    >
-                        <span className="text-xl font-bold">×</span>
-                    </button>
-                </div>
+                                <div className="relative z-10 flex items-center justify-between">
+                                    <div className="flex items-center gap-5">
+                                        <div
+                                            className="w-24 h-24 rounded-3xl flex items-center justify-center font-black text-white text-4xl shadow-2xl relative overflow-hidden ring-4 ring-white/10"
+                                            style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
+                                        >
+                                            <div className="absolute inset-0 bg-white/10 animate-pulse" />
+                                            <span className="relative z-10">{bet.gameName.slice(0, 2).toUpperCase()}</span>
+                                        </div>
 
-                {/* Main Card Container */}
-                <div className="bg-slate-900 border border-white/5 shadow-2xl overflow-hidden sm:rounded-3xl flex flex-col max-h-[85vh] relative w-full">
-
-                    {/* Artistic Background Blurs */}
-                    <div className="absolute top-0 left-0 right-0 h-48 bg-gradient-to-b from-slate-800 to-transparent opacity-50 pointer-events-none" />
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-slate-400/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" style={{ backgroundColor: gameConfig?.hexColor ? `${gameConfig.hexColor}20` : undefined }} />
-
-                    {/* HEADER */}
-                    <div className="relative p-6 sm:p-8 pb-4 z-10">
-                        <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <Badge variant="outline" className="border-white/10 bg-white/5 text-slate-400 backdrop-blur-md uppercase tracking-widest text-[10px]">
-                                        Comprovante Digital
-                                    </Badge>
-                                    {games.length > 1 && (
-                                        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 uppercase text-[10px]">
-                                            Lote • {games.length} Jogos
-                                        </Badge>
-                                    )}
-                                </div>
-
-                                <DialogTitle className="text-3xl sm:text-4xl font-black text-white tracking-tighter flex items-center gap-3">
-                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-lg shadow-lg"
-                                        style={{ background: `linear-gradient(135deg, ${gameConfig?.hexColor || '#333'}, ${gameConfig?.hexColor || '#333'}dd)` }}>
-                                        {bet.gameName.substring(0, 2)}
-                                    </div>
-                                    {bet.gameName}
-                                </DialogTitle>
-
-                                <DialogDescription className="text-slate-400 font-medium flex items-center gap-2 pt-1">
-                                    <span className="text-slate-500">Salve em:</span>
-                                    {bet.createdAt?.seconds ? new Date(bet.createdAt.seconds * 1000).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Hoje'}
-                                    <span className="text-slate-600">•</span>
-                                    <span className="font-mono text-emerald-500/80 tracking-wide text-xs bg-emerald-950/30 px-2 py-0.5 rounded ml-1">
-                                        ID: {bet.id?.slice(0, 8).toUpperCase() || '...'}
-                                    </span>
-                                </DialogDescription>
-                            </div>
-
-                            <div className="flex flex-col gap-2">
-                                <Button
-                                    size="lg"
-                                    className="bg-yellow-500 hover:bg-yellow-400 text-black font-black shadow-xl shadow-yellow-900/20 active:scale-95 transition-all w-full"
-                                    onClick={() => handlePrint()}
-                                >
-                                    <Printer className="w-5 h-5 mr-2" />
-                                    IMPRIMIR COMPROVANTE
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* SCROLLABLE CONTENT */}
-                    <div className="flex-1 overflow-y-auto p-6 sm:p-8 pt-2 space-y-4 custom-scrollbar">
-                        {games.map((game, idx) => {
-                            const displayNums = [...game.main, ...(game.extras || [])];
-                            return (
-                                <div
-                                    key={idx}
-                                    className="relative group bg-slate-950/50 hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-4 transition-all duration-300"
-                                >
-                                    {/* Decoration Line */}
-                                    <div className="absolute left-0 top-6 bottom-6 w-1 rounded-r-full bg-slate-800 group-hover:bg-emerald-500/50 transition-colors" />
-
-                                    <div className="flex items-center justify-between mb-4 pl-3">
-                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">
-                                            JOGO {idx + 1}
-                                        </span>
-
-                                        {/* Actions always visible now, with background */}
-                                        <div className="flex gap-2">
-                                            <Button variant="secondary" size="sm" onClick={() => handleCopy(displayNums, idx)} className="h-8 px-3 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700">
-                                                {copiedIndex === idx ? <Check className="w-3.5 h-3.5 mr-1.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 mr-1.5" />}
-                                                {copiedIndex === idx ? 'Copiado' : 'Copiar'}
-                                            </Button>
-                                            <Button variant="secondary" size="sm" onClick={() => handlePrint(idx)} className="h-8 px-3 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700">
-                                                <Printer className="w-3.5 h-3.5 mr-1.5" />
-                                                Imprimir
-                                            </Button>
+                                        <div>
+                                            <h2 className="text-4xl font-black text-white mb-2">{bet.gameName}</h2>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <Chip
+                                                    size="sm"
+                                                    variant="flat"
+                                                    className="bg-white/10 text-white font-mono backdrop-blur-sm"
+                                                    startContent={<Star className="w-3 h-3" />}
+                                                >
+                                                    {bet.id?.slice(0, 8).toUpperCase()}
+                                                </Chip>
+                                                {bet.concurso && (
+                                                    <Chip
+                                                        size="sm"
+                                                        variant="flat"
+                                                        className="bg-emerald-500/20 text-emerald-300 font-bold backdrop-blur-sm"
+                                                    >
+                                                        Concurso {bet.concurso}
+                                                    </Chip>
+                                                )}
+                                                {games.length > 1 && (
+                                                    <Chip
+                                                        size="sm"
+                                                        variant="flat"
+                                                        className="bg-purple-500/20 text-purple-300 font-bold backdrop-blur-sm"
+                                                    >
+                                                        {games.length} Jogos
+                                                    </Chip>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div className="flex justify-center pl-2">
-                                        {gameConfig ? (
-                                            <div className="w-full">
-                                                <LotteryBallGrid
-                                                    config={gameConfig}
-                                                    numbers={displayNums}
-                                                    isRevealing={false}
-                                                />
+                                    {hasResult && totalHits > 0 && (
+                                        <div className="text-right">
+                                            <div className="flex items-center gap-2 justify-end mb-2">
+                                                <Trophy className="w-6 h-6 text-yellow-400" />
+                                                <span className="text-5xl font-black text-white">{totalHits}</span>
                                             </div>
-                                        ) : <div className="text-slate-500 text-sm">Dados indisponíveis</div>}
-                                    </div>
+                                            <p className="text-sm text-slate-400 font-medium">Acertos Totais</p>
+                                        </div>
+                                    )}
                                 </div>
-                            )
-                        })}
-                    </div>
+                            </div>
 
-                    {/* PRO ACTIONS FOOTER */}
-                    <div className="p-4 sm:p-6 border-t border-white/5 bg-slate-950/50 grid grid-cols-2 gap-4">
-                        <Button
-                            variant="outline"
-                            className="bg-transparent border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-700 h-12 rounded-xl"
-                            disabled={!isPro}
-                            onClick={() => handleProAction('Email')}
-                        >
-                            <Mail className="w-4 h-4 mr-2" />
-                            Enviar por Email
-                            {!isPro && <Lock className="w-3 h-3 ml-2 text-yellow-500/50" />}
-                        </Button>
+                            {/* Resultado Oficial */}
+                            {result && (
+                                <Card className="bg-gradient-to-br from-emerald-950/50 via-emerald-900/30 to-emerald-950/50 border-2 border-emerald-500/30 shadow-xl shadow-emerald-500/10 mb-6">
+                                    <CardHeader className="pb-3">
+                                        <div className="flex items-center justify-between w-full">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-3 bg-yellow-500/20 rounded-2xl backdrop-blur-sm">
+                                                    <Trophy className="w-6 h-6 text-yellow-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+                                                        Resultado Oficial
+                                                    </p>
+                                                    <p className="text-xl font-black text-white">Concurso {result.concurso}</p>
+                                                </div>
+                                            </div>
 
-                        <Button
-                            variant="outline"
-                            className="bg-transparent border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-700 h-12 rounded-xl"
-                            disabled={!isPro}
-                            onClick={() => handleProAction('SMS')}
-                        >
-                            <MessageSquare className="w-4 h-4 mr-2" />
-                            Enviar por SMS
-                            {!isPro && <Lock className="w-3 h-3 ml-2 text-yellow-500/50" />}
-                        </Button>
-                    </div>
-                </div>
-            </DialogContent>
-        </Dialog>
+                                            {winPercentage > 0 && (
+                                                <div className="text-right">
+                                                    <p className="text-3xl font-black text-emerald-400">{winPercentage}%</p>
+                                                    <p className="text-xs text-slate-400">Taxa de Acerto</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </CardHeader>
+                                    <CardBody className="pt-0">
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {result.dezenas.map((num, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center font-bold text-white text-base shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-300/30"
+                                                >
+                                                    {num}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {winPercentage > 0 && (
+                                            <Progress
+                                                value={winPercentage}
+                                                color="success"
+                                                className="mt-2"
+                                                classNames={{
+                                                    indicator: "bg-gradient-to-r from-emerald-400 to-emerald-600"
+                                                }}
+                                            />
+                                        )}
+                                    </CardBody>
+                                </Card>
+                            )}
+                        </ModalHeader>
+
+                        {/* ========== BODY ========== */}
+                        <ModalBody className="px-8 py-6">
+                            <Accordion
+                                variant="splitted"
+                                selectionMode="multiple"
+                                defaultExpandedKeys={games.length === 1 ? ["0"] : []}
+                                className="px-0"
+                            >
+                                {games.map((game, idx) => {
+                                    const gameNumbers = [...game.main, ...(game.extras || [])];
+                                    const matchedNumbers = gameNumbers.filter(n =>
+                                        drawnNumbers.some(d => parseInt(d) === parseInt(n))
+                                    );
+                                    const hits = matchedNumbers.length;
+
+                                    return (
+                                        <AccordionItem
+                                            key={idx}
+                                            aria-label={`Jogo ${idx + 1}`}
+                                            className={`modal-game-card ${hits > 0
+                                                ? 'bg-gradient-to-br from-emerald-950/30 to-emerald-900/20 border-2 border-emerald-500/40'
+                                                : 'bg-gradient-to-br from-slate-900/50 to-slate-800/30 border-2 border-slate-700/50'
+                                                } rounded-3xl shadow-xl mb-3`}
+                                            indicator={<ChevronDown className="w-5 h-5" />}
+                                            title={
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center font-black text-white text-lg backdrop-blur-sm">
+                                                        {idx + 1}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-lg font-bold text-white">Jogo {idx + 1}</p>
+                                                        {result && (
+                                                            <Chip
+                                                                size="sm"
+                                                                className={`${hits > 0
+                                                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                                                    : 'bg-slate-800 text-slate-600'
+                                                                    } font-bold border-0 mt-1`}
+                                                            >
+                                                                {hits === 0 ? 'Nenhum acerto' : `${hits} Acertos`}
+                                                            </Chip>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            <div className="p-6 pt-2">
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <p className="text-sm text-slate-400">Números do jogo {idx + 1}</p>
+                                                    <Tooltip content={copiedGameIndex === idx ? "Copiado!" : "Copiar números"}>
+                                                        <Button
+                                                            isIconOnly
+                                                            size="sm"
+                                                            variant="flat"
+                                                            className="bg-white/5 hover:bg-white/10 text-white backdrop-blur-sm rounded-xl"
+                                                            onPress={() => copyGame(gameNumbers, idx)}
+                                                        >
+                                                            {copiedGameIndex === idx ? (
+                                                                <Check className="w-4 h-4 text-emerald-500" />
+                                                            ) : (
+                                                                <Copy className="w-4 h-4" />
+                                                            )}
+                                                        </Button>
+                                                    </Tooltip>
+                                                </div>
+
+                                                {lottery ? (
+                                                    <LotteryBallGrid
+                                                        config={lottery}
+                                                        numbers={gameNumbers}
+                                                        isRevealing={false}
+                                                        matchedNumbers={matchedNumbers}
+                                                    />
+                                                ) : (
+                                                    <p className="text-slate-500 text-center">Configuração não encontrada</p>
+                                                )}
+                                            </div>
+                                        </AccordionItem>
+                                    );
+                                })}
+                            </Accordion>
+                        </ModalBody>
+
+                        {/* ========== FOOTER ========== */}
+                        <ModalFooter className="flex flex-col gap-4 px-8 pb-8">
+                            {/* Botões de Ação */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full">
+                                {/* Botão Baixar PDF */}
+                                <div className="modal-action-btn bg-gradient-to-br from-blue-500/20 to-blue-600/20 hover:from-blue-500/30 hover:to-blue-600/30 border-2 border-blue-500/30 backdrop-blur-sm rounded-2xl overflow-hidden">
+                                    <DownloadLotteryTicket bet={bet} result={result} />
+                                </div>
+
+                                {/* Botão Imprimir */}
+                                <div className="modal-action-btn bg-gradient-to-br from-purple-500/20 to-purple-600/20 hover:from-purple-500/30 hover:to-purple-600/30 border-2 border-purple-500/30 backdrop-blur-sm rounded-2xl overflow-hidden">
+                                    <PrintLotteryTicket bet={bet} result={result} />
+                                </div>
+
+                                <Button
+                                    className={`modal-action-btn font-bold border-2 backdrop-blur-sm rounded-2xl ${isPro
+                                        ? 'bg-gradient-to-br from-purple-500/20 to-purple-600/20 hover:from-purple-500/30 hover:to-purple-600/30 text-purple-400 border-purple-500/30'
+                                        : 'bg-slate-800/50 text-slate-600 border-slate-700/50 cursor-not-allowed'
+                                        }`}
+                                    startContent={<Mail className="w-5 h-5" />}
+                                    onPress={handleEmail}
+                                    isDisabled={!isPro}
+                                    size="lg"
+                                >
+                                    Email
+                                </Button>
+
+                                <Button
+                                    className={`modal-action-btn font-bold border-2 backdrop-blur-sm rounded-2xl ${isPro
+                                        ? 'bg-gradient-to-br from-green-500/20 to-green-600/20 hover:from-green-500/30 hover:to-green-600/30 text-green-400 border-green-500/30'
+                                        : 'bg-slate-800/50 text-slate-600 border-slate-700/50 cursor-not-allowed'
+                                        }`}
+                                    startContent={<WhatsAppIcon />}
+                                    onPress={handleWhatsApp}
+                                    isDisabled={!isPro}
+                                    size="lg"
+                                >
+                                    WhatsApp
+                                </Button>
+
+                                {games.length > 1 && (
+                                    <Button
+                                        className="modal-action-btn bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 hover:from-emerald-500/30 hover:to-emerald-600/30 text-emerald-400 font-bold border-2 border-emerald-500/30 backdrop-blur-sm rounded-2xl"
+                                        startContent={copiedAll ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                                        onPress={copyAllGames}
+                                        size="lg"
+                                    >
+                                        {copiedAll ? 'Copiado!' : 'Copiar Todos'}
+                                    </Button>
+                                )}
+                            </div>
+
+                            {/* Aviso PRO */}
+                            {!isPro && (
+                                <Card className="bg-gradient-to-r from-yellow-500/10 via-orange-500/10 to-yellow-500/10 border-2 border-yellow-500/30 backdrop-blur-sm">
+                                    <CardBody className="py-4">
+                                        <div className="flex items-center gap-3">
+                                            <Sparkles className="w-6 h-6 text-yellow-400" />
+                                            <div>
+                                                <p className="text-sm font-bold text-yellow-400">Upgrade para PRO</p>
+                                                <p className="text-xs text-yellow-500/80">
+                                                    Desbloqueie Email, WhatsApp e muito mais
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </CardBody>
+                                </Card>
+                            )}
+
+                            <Divider className="bg-white/10" />
+
+                            {/* Fechar */}
+                            <Button
+                                color="danger"
+                                variant="light"
+                                size="lg"
+                                className="w-full font-bold rounded-2xl"
+                                onPress={onClose}
+                            >
+                                Fechar
+                            </Button>
+                        </ModalFooter>
+                    </>
+                )}
+            </ModalContent>
+        </Modal>
     );
 }

@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { getUserBets, SavedBet } from "@/lib/firebase/bets-client";
 import { LOTTERIES } from "@/lib/config/lotteries";
 import { SavedBetDialog } from "@/components/lottery/saved-bet-dialog";
+import { getLotteryInfoClient } from "@/lib/firebase/games-client";
 
 export const runtime = 'edge';
 
@@ -55,8 +56,38 @@ export default function DashboardPage() {
         loadData();
     }, [user]);
 
+    const [featuredGame, setFeaturedGame] = useState<any>(null);
+
+    useEffect(() => {
+        async function fetchFeatured() {
+            const candidates = ['mega-sena', 'mais-milionaria', 'lotofacil', 'quina', 'mega-da-virada'];
+            const results = await Promise.all(candidates.map(async slug => {
+                const info = await getLotteryInfoClient(slug);
+                return info ? { slug, ...info } : null;
+            }));
+
+            const sorted = results
+                .filter((r): r is NonNullable<typeof r> => r !== null && typeof r.rawValue === 'number')
+                .sort((a, b) => b.rawValue - a.rawValue);
+
+            if (sorted.length > 0) {
+                const best = sorted[0];
+                const config = Object.values(LOTTERIES).find(l => l.slug === best.slug);
+                setFeaturedGame({
+                    name: config ? config.name : best.slug,
+                    slug: best.slug,
+                    prize: best.prize,
+                });
+            }
+        }
+        fetchFeatured();
+    }, []);
+
     const recentBets = bets.slice(0, 5);
     const totalBets = bets.length;
+    const pendingBetsCount = bets
+        .filter(b => b.status === 'pending')
+        .reduce((acc, b) => acc + (b.games ? b.games.length : 1), 0);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20 min-h-screen">
@@ -71,31 +102,23 @@ export default function DashboardPage() {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <Button
-                        as={Link}
-                        href="/pricing"
-                        variant="flat"
-                        color={plan === 'pro' ? "secondary" : "warning"}
-                        startContent={<Gem size={16} />}
-                    >
-                        {plan === 'pro' ? 'Gerenciar Plano' : 'Seja PRO'}
-                    </Button>
-                    <Button
-                        as={Link}
-                        href="/apostas/quina"
-                        color="primary"
-                        variant="shadow"
-                        className="font-bold bg-gradient-to-r from-emerald-500 to-teal-500 border-none shadow-emerald-500/20"
-                        endContent={<Plus size={16} />}
-                    >
-                        Novo Palpite
-                    </Button>
+                    {plan === 'free' && (
+                        <Button
+                            as={Link}
+                            href="/pricing"
+                            variant="flat"
+                            color="warning"
+                            startContent={<Gem size={16} />}
+                        >
+                            Seja PRO
+                        </Button>
+                    )}
                 </div>
             </div>
 
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card className="border-none bg-gradient-to-br from-emerald-500/20 to-emerald-900/10 border border-emerald-500/20 backdrop-blur-md">
+                <Card className="border-none bg-gradient-to-br from-emerald-500/20 to-emerald-900/10 border border-emerald-500/20 backdrop-blur-md rounded-3xl">
                     <CardBody className="flex flex-row items-center justify-between p-6">
                         <div>
                             <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">Total de Jogos</p>
@@ -107,11 +130,21 @@ export default function DashboardPage() {
                     </CardBody>
                 </Card>
 
-                <Card className="border-none bg-gradient-to-br from-purple-500/20 to-purple-900/10 border border-purple-500/20 backdrop-blur-md">
+                <Card className="border-none bg-gradient-to-br from-purple-500/20 to-purple-900/10 border border-purple-500/20 backdrop-blur-md rounded-3xl">
                     <CardBody className="flex flex-row items-center justify-between p-6">
                         <div>
                             <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Seu Plano</p>
-                            <h2 className="text-4xl font-black text-white uppercase">{loading ? '...' : plan}</h2>
+                            <h2 className="text-4xl font-black text-white uppercase">
+                                {loading ? '...' : (
+                                    {
+                                        'free': 'Grátis',
+                                        'monthly': 'Mensal',
+                                        'annual': 'Anual',
+                                        'lifetime': 'Vitalício',
+                                        'pro': 'PRO'
+                                    }[plan] || plan
+                                )}
+                            </h2>
                         </div>
                         <div className="p-3 bg-purple-500/20 rounded-2xl text-purple-400 shadow-lg shadow-purple-900/20">
                             <Gem size={24} />
@@ -119,19 +152,19 @@ export default function DashboardPage() {
                     </CardBody>
                 </Card>
 
-                <Card className="border-none bg-gradient-to-br from-blue-500/20 to-blue-900/10 border border-blue-500/20 backdrop-blur-md">
+                <Card className="border-none bg-gradient-to-br from-blue-500/20 to-blue-900/10 border border-blue-500/20 backdrop-blur-md rounded-3xl">
                     <CardBody className="flex flex-row items-center justify-between p-6">
                         <div>
-                            <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1">Saldo</p>
-                            <h2 className="text-4xl font-black text-white">R$ 0,00</h2>
+                            <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1">Jogos a Conferir</p>
+                            <h2 className="text-4xl font-black text-white">{loading ? '...' : pendingBetsCount}</h2>
                         </div>
                         <div className="p-3 bg-blue-500/20 rounded-2xl text-blue-400 shadow-lg shadow-blue-900/20">
-                            <Wallet size={24} />
+                            <CheckCircle2 size={24} />
                         </div>
                     </CardBody>
                 </Card>
 
-                <Card className="border-none bg-gradient-to-br from-yellow-500/20 to-yellow-900/10 border border-yellow-500/20 backdrop-blur-md">
+                <Card className="border-none bg-gradient-to-br from-yellow-500/20 to-yellow-900/10 border border-yellow-500/20 backdrop-blur-md rounded-3xl">
                     <CardBody className="flex flex-row items-center justify-between p-6">
                         <div>
                             <p className="text-xs font-bold text-yellow-400 uppercase tracking-wider mb-1">Premiações</p>
@@ -144,10 +177,74 @@ export default function DashboardPage() {
                 </Card>
             </div>
 
+            {/* Quick Tools Grid */}
+            <div>
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Sparkles className="text-yellow-400 w-5 h-5" /> Ferramentas Rápidas
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Card
+                        as={Link}
+                        href="/apostas/quina"
+                        isPressable
+                        className="bg-slate-900/50 border border-white/5 hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all rounded-3xl group"
+                    >
+                        <CardBody className="flex flex-col items-center justify-center py-8 gap-3">
+                            <div className="p-3 bg-emerald-500/20 rounded-2xl text-emerald-400 group-hover:scale-110 transition-transform">
+                                <Plus size={24} />
+                            </div>
+                            <p className="font-bold text-white">Criar Jogo</p>
+                        </CardBody>
+                    </Card>
+
+                    <Card
+                        as={Link}
+                        href="/dashboard/checker"
+                        isPressable
+                        className="bg-slate-900/50 border border-white/5 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all rounded-3xl group"
+                    >
+                        <CardBody className="flex flex-col items-center justify-center py-8 gap-3">
+                            <div className="p-3 bg-blue-500/20 rounded-2xl text-blue-400 group-hover:scale-110 transition-transform">
+                                <CheckCircle2 size={24} />
+                            </div>
+                            <p className="font-bold text-white">Conferidor</p>
+                        </CardBody>
+                    </Card>
+
+                    <Card
+                        as={Link}
+                        href="/dashboard/stats"
+                        isPressable
+                        className="bg-slate-900/50 border border-white/5 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all rounded-3xl group"
+                    >
+                        <CardBody className="flex flex-col items-center justify-center py-8 gap-3">
+                            <div className="p-3 bg-purple-500/20 rounded-2xl text-purple-400 group-hover:scale-110 transition-transform">
+                                <TrendingUp size={24} />
+                            </div>
+                            <p className="font-bold text-white">Estatísticas</p>
+                        </CardBody>
+                    </Card>
+
+                    <Card
+                        as={Link}
+                        href="/dashboard/profile"
+                        isPressable
+                        className="bg-slate-900/50 border border-white/5 hover:border-yellow-500/50 hover:bg-yellow-500/10 transition-all rounded-3xl group"
+                    >
+                        <CardBody className="flex flex-col items-center justify-center py-8 gap-3">
+                            <div className="p-3 bg-yellow-500/20 rounded-2xl text-yellow-400 group-hover:scale-110 transition-transform">
+                                <UserIcon size={24} />
+                            </div>
+                            <p className="font-bold text-white">Meu Perfil</p>
+                        </CardBody>
+                    </Card>
+                </div>
+            </div>
+
             {/* Main Content */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Recent Bets */}
-                <Card className="lg:col-span-2 border-none bg-slate-900/50 backdrop-blur-md">
+                <Card className="lg:col-span-2 border-none bg-slate-900/50 backdrop-blur-md rounded-3xl">
                     <CardHeader className="flex justify-between items-center px-6 py-5 border-b border-white/5">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-emerald-500/10 rounded-lg">
@@ -224,20 +321,28 @@ export default function DashboardPage() {
                 {/* Sidebar Widgets */}
                 <div className="space-y-6">
                     {/* Featured */}
-                    <Card className="bg-gradient-to-br from-yellow-600 to-orange-700 border-none shadow-2xl relative overflow-hidden h-[340px] group">
+                    <Card className="bg-gradient-to-br from-yellow-600 to-orange-700 border-none shadow-2xl relative overflow-hidden h-[340px] group rounded-3xl">
                         <CardBody className="p-8 flex flex-col justify-between relative z-10">
                             <div>
                                 <Chip className="bg-white/20 text-white backdrop-blur-md border-none mb-4 font-bold shadow-lg">Destaque</Chip>
-                                <h3 className="text-3xl font-black text-white mb-2 leading-tight">Mega da Virada</h3>
-                                <p className="text-yellow-100 font-medium text-lg opacity-90">O maior prêmio da história.</p>
+                                <h3 className="text-3xl font-black text-white mb-2 leading-tight">
+                                    {featuredGame ? featuredGame.name : 'Apurando...'}
+                                </h3>
+                                <p className="text-yellow-100 font-medium text-lg opacity-90">O maior prêmio acumulado.</p>
 
                                 <div className="mt-6 p-4 rounded-2xl bg-black/20 backdrop-blur-sm border border-white/10">
                                     <p className="text-xs text-yellow-200 uppercase font-black tracking-widest mb-1">Estimativa</p>
-                                    <p className="text-3xl font-black text-white">R$ 600M</p>
+                                    <p className="text-3xl font-black text-white">
+                                        {featuredGame ? featuredGame.prize : '...'}
+                                    </p>
                                 </div>
                             </div>
 
-                            <Button as={Link} href="/mega-da-virada" className="w-full font-bold bg-white text-orange-900 border-none shadow-xl hover:bg-yellow-50">
+                            <Button
+                                as={Link}
+                                href={`/apostas/${featuredGame?.slug || 'quina'}`}
+                                className="w-full font-bold bg-white text-orange-900 border-none shadow-xl hover:bg-yellow-50"
+                            >
                                 Apostar Agora
                             </Button>
                         </CardBody>
@@ -245,7 +350,7 @@ export default function DashboardPage() {
                     </Card>
 
                     {/* Tip */}
-                    <Card className="bg-slate-900 border border-slate-800 relative overflow-hidden">
+                    <Card className="bg-slate-900 border border-slate-800 relative overflow-hidden rounded-3xl">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
                         <CardBody className="p-6">
                             <div className="flex items-center gap-3 mb-4">

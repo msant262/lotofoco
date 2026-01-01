@@ -1,9 +1,9 @@
 import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp, query, where, orderBy, getDocs } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, query, where, orderBy, getDocs, doc, updateDoc } from "firebase/firestore";
 
 export interface GameItem {
     main: string[];
-    extras?: string[];
+    extras?: string[]; // Para +Milionaria
 }
 
 export interface SavedBet {
@@ -17,7 +17,7 @@ export interface SavedBet {
     games?: GameItem[];
 
     concurso?: number;
-    createdAt: any;
+    createdAt: any; // Timestamp do Firestore
     status: 'pending' | 'won' | 'lost';
 }
 
@@ -59,5 +59,18 @@ export async function getUserBets(userId: string) {
     } catch (e) {
         console.error("Error fetching bets:", e);
         return [];
+    }
+}
+
+export async function updateBetStatus(userId: string, betId: string, status: 'pending' | 'won' | 'lost') {
+    if (!db || !userId || !betId) return false;
+
+    try {
+        const betRef = doc(db, "users", userId, "bets", betId);
+        await updateDoc(betRef, { status });
+        return true;
+    } catch (e) {
+        console.error("Error updating bet status:", e);
+        return false;
     }
 }

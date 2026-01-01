@@ -249,6 +249,7 @@ export async function getLotteryInfoClient(slug: string) {
 
             return {
                 prize: nextPrize > 0 ? formatCurrency(nextPrize) : "Apurando...",
+                rawValue: nextPrize, // Added for comparison logic
                 contest: nextConcurso ? String(nextConcurso) : String(data.latestConcurso || '...'),
                 date: nextDate || data.latestDate || '...',
                 dezenas: data.latestDezenas || [],
