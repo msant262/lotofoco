@@ -1,9 +1,10 @@
 'use client';
 
-import { LotteryConfig } from "@/lib/config/lotteries";
+import { LotteryConfig, SOCCER_TEAMS } from "@/lib/config/lotteries";
 import { cn } from "@/lib/utils";
 import anime from "animejs/lib/anime.es.js";
 import { useEffect, useRef } from "react";
+import { Heart } from "lucide-react";
 
 interface LotteryBallGridProps {
     config: LotteryConfig;
@@ -118,6 +119,12 @@ export function LotteryBallGrid({ config, numbers, isRevealing, matchedNumbers =
                 mainSet = numbers.slice(0, numbers.length - 1);
                 extraSet = numbers.slice(numbers.length - 1);
             }
+        } else if (config.slug === 'timemania') {
+            // Timemania: 10 nums + 1 Team (usually)
+            if (numbers.length >= 11) {
+                mainSet = numbers.slice(0, numbers.length - 1);
+                extraSet = numbers.slice(numbers.length - 1);
+            }
         }
 
         return (
@@ -132,7 +139,25 @@ export function LotteryBallGrid({ config, numbers, isRevealing, matchedNumbers =
                             {config.extraName || 'Extras'}
                         </div>
                         <div className="flex flex-wrap gap-4 justify-center">
-                            {extraSet.map((n, i) => renderStandardBall(n, i, true))}
+                            {extraSet.map((n, i) => {
+                                if (config.slug === 'timemania') {
+                                    const teamIdx = parseInt(n) - 1;
+                                    const teamName = SOCCER_TEAMS[teamIdx] || `Time ${n}`;
+
+                                    return (
+                                        <div key={i} className="flex flex-col items-center gap-2">
+                                            <div className="w-16 h-16 rounded-b-xl rounded-t-sm bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center border-2 border-red-400 shadow-lg relative overflow-hidden group">
+                                                <div className="absolute inset-0 bg-[url('/img/shield-detect.png')] opacity-10"></div>
+                                                <Heart className="w-8 h-8 text-white fill-white animate-pulse" />
+                                            </div>
+                                            <div className="bg-slate-800 px-3 py-1 rounded-full border border-slate-700 max-w-[100px] truncate">
+                                                <span className="text-[10px] font-bold text-white uppercase" title={teamName}>{teamName}</span>
+                                            </div>
+                                        </div>
+                                    )
+                                }
+                                return renderStandardBall(n, i, true);
+                            })}
                         </div>
                     </div>
                 )}

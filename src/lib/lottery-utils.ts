@@ -19,7 +19,7 @@ export const getNextDrawDate = (slug: string): Date => {
     // Super Sete: Mon(1), Wed(3), Fri(5)
     // +Milionaria: Wed(3), Sat(6)
     // Federal: Wed(3), Sat(6)
-    // Loteca: Mon(1) ? (Results)
+
 
     const schedules: Record<string, number[]> = {
         'mega-sena': [2, 4, 6],
@@ -32,7 +32,7 @@ export const getNextDrawDate = (slug: string): Date => {
         'super-sete': [1, 3, 5],
         'mais-milionaria': [3, 6],
         'federal': [3, 6],
-        'loteca': [1]
+
     };
 
     const allowedDays = schedules[slug] || [3, 6]; // default Wed, Sat

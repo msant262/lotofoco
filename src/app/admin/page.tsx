@@ -25,8 +25,7 @@ const GAMES = [
     { slug: 'dia-de-sorte', name: 'Dia de Sorte', color: '#CB8322', icon: '☀️', range: 31, pick: 7 },
     { slug: 'super-sete', name: 'Super Sete', color: '#A8CF45', icon: '7️⃣', range: 10, pick: 7 },
     { slug: 'mais-milionaria', name: '+Milionária', color: '#003758', icon: '💎', range: 50, pick: 6 },
-    { slug: 'federal', name: 'Federal', color: '#004381', icon: '🏛️', range: 0, pick: 0 },
-    { slug: 'loteca', name: 'Loteca', color: '#CA502C', icon: '🏆', range: 0, pick: 14 },
+
 ];
 
 const API_DOCS = [

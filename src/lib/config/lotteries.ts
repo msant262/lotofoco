@@ -6,6 +6,7 @@ export interface LotteryConfig {
     slug: string;
     name: string;
     range: number;
+    startFrom?: number; // Default is 1, Super Sete starts from 0
     minBet: number;
     maxBet: number;
     color: string;
@@ -113,7 +114,8 @@ export const LOTTERIES: Record<string, LotteryConfig> = {
     'super-sete': {
         slug: 'super-sete',
         name: 'Super Sete',
-        range: 9,
+        range: 10, // 0-9 = 10 numbers
+        startFrom: 0, // Starts from 0
         minBet: 7,
         maxBet: 21,
         color: 'from-lime-600 to-lime-800',
@@ -138,30 +140,8 @@ export const LOTTERIES: Record<string, LotteryConfig> = {
         extraRange: 6,
         extraName: 'Trevos'
     },
-    'federal': {
-        slug: 'federal',
-        name: 'Federal',
-        range: 99999,
-        minBet: 1,
-        maxBet: 1,
-        color: 'from-blue-500 to-indigo-600',
-        accentColor: 'text-indigo-300',
-        hexColor: '#004381',
-        layoutType: 'standard',
-        extraType: 'none'
-    },
-    'loteca': {
-        slug: 'loteca',
-        name: 'Loteca',
-        range: 14,
-        minBet: 14,
-        maxBet: 14,
-        color: 'from-red-400 to-pink-600',
-        accentColor: 'text-pink-300',
-        hexColor: '#CA502C',
-        layoutType: 'soccer',
-        extraType: 'none'
-    }
+
+
 };
 
 export const SOCCER_TEAMS = [

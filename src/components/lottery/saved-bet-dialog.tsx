@@ -90,8 +90,6 @@ export function SavedBetDialog({ open, onOpenChange, bet, plan, result }: SavedB
     const color = lottery?.hexColor || '#10b981';
     const isPro = plan === 'pro';
 
-    console.log('🔐 Modal - User Plan:', plan, '| isPro:', isPro);
-
     const games = bet.games || (bet.numbers ? [{ main: bet.numbers }] : []);
     const drawnNumbers = result?.dezenas || [];
     const hasResult = drawnNumbers.length > 0;
@@ -273,6 +271,7 @@ export function SavedBetDialog({ open, onOpenChange, bet, plan, result }: SavedB
                                         </div>
                                         {winPercentage > 0 && (
                                             <Progress
+                                                aria-label="Taxa de acerto"
                                                 value={winPercentage}
                                                 color="success"
                                                 className="mt-2"
@@ -283,6 +282,18 @@ export function SavedBetDialog({ open, onOpenChange, bet, plan, result }: SavedB
                                         )}
                                     </CardBody>
                                 </Card>
+                            )}
+
+                            {/* Aviso quando sem resultado */}
+                            {!result && (
+                                <div className="w-full p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl mt-4">
+                                    <p className="text-sm text-yellow-400 font-medium text-center">
+                                        {bet.concurso
+                                            ? `⏳ Aguardando resultado do Concurso ${bet.concurso}`
+                                            : '⚠️ Este bilhete não tem concurso associado. Edite o bilhete para adicionar o concurso.'
+                                        }
+                                    </p>
+                                </div>
                             )}
                         </ModalHeader>
 

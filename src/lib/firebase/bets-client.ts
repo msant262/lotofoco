@@ -4,6 +4,7 @@ import { collection, addDoc, serverTimestamp, query, where, orderBy, getDocs, do
 export interface GameItem {
     main: string[];
     extras?: string[]; // Para +Milionaria
+    explanation?: string; // AI Justification
 }
 
 export interface SavedBet {
@@ -40,6 +41,52 @@ export async function saveBet(userId: string, gameSlug: string, gameName: string
     } catch (e) {
         console.error("Error saving bet:", e);
         return null; // Let caller handle error
+    }
+}
+
+// Função para buscar o próximo concurso
+export async function getNextConcurso(gameSlug: string): Promise<number | null> {
+    try {
+        const res = await fetch(`/api/proxy-caixa?slug=${gameSlug}`);
+        if (!res.ok) return null;
+
+        const data = await res.json();
+        if (!data || !data.concurso) return null;
+
+        const lastConcurso = data.concurso;
+        const lastDrawDate = data.data || data.dataApuracao;
+
+        if (!lastDrawDate) {
+            // Sem data, assume próximo concurso
+            return lastConcurso + 1;
+        }
+
+        // Parsear data do sorteio (formato dd/mm/yyyy)
+        const parts = lastDrawDate.split('/');
+        if (parts.length !== 3) return lastConcurso + 1;
+
+        const drawDate = new Date(
+            parseInt(parts[2]),
+            parseInt(parts[1]) - 1,
+            parseInt(parts[0])
+        );
+
+        // Data de hoje (sem hora)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        drawDate.setHours(0, 0, 0, 0);
+
+        // Se o sorteio foi hoje ou antes, o próximo é +1
+        // Se o sorteio é de uma data futura (não deveria acontecer), usa o mesmo
+        if (drawDate <= today) {
+            return lastConcurso + 1;
+        }
+
+        // O último sorteio ainda não aconteceu (data futura - improvável)
+        return lastConcurso;
+    } catch (e) {
+        console.error("Error fetching next concurso:", e);
+        return null;
     }
 }
 

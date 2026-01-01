@@ -13,7 +13,7 @@ const DB_NAMES: Record<string, string> = {
     'super-sete': 'Super-Sete',
     'mais-milionaria': '+Milionária',
     'federal': 'Federal',
-    'loteca': 'Loteca',
+
     'mega-da-virada': 'Mega-Sena'
 };
 

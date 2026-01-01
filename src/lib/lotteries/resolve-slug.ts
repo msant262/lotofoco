@@ -3,7 +3,7 @@ import { LOTTERIES } from "@/lib/config/lotteries";
 // Keys reais do seu LOTTERIES:
 // mega-sena, lotofacil, quina, lotomania, timemania,
 // dupla-sena, dia-de-sorte, super-sete, mais-milionaria,
-// federal, loteca
+// federal
 
 const ALIASES: Record<string, string> = {
     // variações sem hífen

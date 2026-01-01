@@ -58,29 +58,47 @@ const LotteryBall = ({ number, isWinner }: { number: string; isWinner: boolean }
     </div>
 );
 
-const OfficialDrawResult = ({ draw }: { draw: DrawDetails }) => (
-    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-4 border-2 border-emerald-500/30 shadow-2xl">
-        <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-yellow-500/20 rounded-lg">
-                <Trophy className="w-5 h-5 text-yellow-400" />
-            </div>
-            <div>
-                <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Sorteio Oficial</p>
-                <p className="text-sm font-black text-white">Concurso {draw.concurso}</p>
-            </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-            {draw.dezenas.map((num, idx) => (
-                <div
-                    key={idx}
-                    className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center font-bold text-white text-sm shadow-lg"
-                >
-                    {num}
+const OfficialDrawResult = ({ draw, userNumbers = [] }: { draw: DrawDetails; userNumbers?: string[] }) => {
+    const isHit = (num: string) => userNumbers.some(n => parseInt(n) === parseInt(num));
+
+    return (
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-4 border-2 border-emerald-500/30 shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+                <div className="p-2 bg-yellow-500/20 rounded-lg">
+                    <Trophy className="w-5 h-5 text-yellow-400" />
                 </div>
-            ))}
+                <div>
+                    <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Sorteio Oficial</p>
+                    <p className="text-sm font-black text-white">Concurso {draw.concurso}</p>
+                </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                {draw.dezenas.map((num, idx) => (
+                    <div
+                        key={idx}
+                        className={`
+                            w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-lg
+                            ${isHit(num)
+                                ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black ring-4 ring-yellow-300/50 scale-110'
+                                : 'bg-gradient-to-br from-emerald-400 to-emerald-600 text-white'
+                            }
+                        `}
+                    >
+                        {num}
+                    </div>
+                ))}
+            </div>
+            {userNumbers.length > 0 && (
+                <div className="mt-3 text-xs text-slate-400 text-center">
+                    <span className="inline-flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                        Números que você acertou
+                    </span>
+                </div>
+            )}
         </div>
-    </div>
-);
+    );
+};
 
 const BetCard = ({
     bet,
@@ -161,7 +179,7 @@ const BetCard = ({
                                 }`}
                             startContent={isWinner ? <Trophy className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
                         >
-                            {isWinner ? `${hits} Acertos` : 'Não Premiado'}
+                            {hits > 0 ? `${hits} Acerto${hits > 1 ? 's' : ''}` : 'Sem Acertos'}
                         </Chip>
                     )}
 
@@ -179,9 +197,23 @@ const BetCard = ({
             </CardHeader>
 
             <CardBody className="px-6 pb-6 pt-0">
-                {isChecked && bet.result && (
+                {/* Resultado Oficial */}
+                {bet.result && (
                     <div className="mb-5">
-                        <OfficialDrawResult draw={bet.result} />
+                        <OfficialDrawResult draw={bet.result} userNumbers={numbers} />
+                    </div>
+                )}
+
+                {/* Aviso quando conferido mas sem resultado */}
+                {isChecked && !bet.result && (
+                    <div className="mb-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                        <p className="text-sm text-yellow-400 font-medium flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            {bet.concurso
+                                ? `Aguardando resultado do Concurso ${bet.concurso}`
+                                : 'Nenhum concurso associado a este bilhete'
+                            }
+                        </p>
                     </div>
                 )}
 
@@ -190,7 +222,7 @@ const BetCard = ({
                         <LotteryBall
                             key={idx}
                             number={num}
-                            isWinner={isChecked && checkIfHit(num)}
+                            isWinner={!!bet.result && checkIfHit(num)}
                         />
                     ))}
 
@@ -239,14 +271,6 @@ export default function BetsPage() {
 
                 const userData = userDoc.exists() ? userDoc.data() : null;
                 const isProUser = userData?.isPro === true || userData?.subscriptionStatus === 'active';
-
-                console.log('📊 User Data:', {
-                    plan: userData?.plan,
-                    isPro: userData?.isPro,
-                    subscriptionStatus: userData?.subscriptionStatus,
-                    isProUser
-                });
-
                 setUserPlan(isProUser ? 'pro' : 'free');
 
                 await fetchResults(betsData);
@@ -288,7 +312,7 @@ export default function BetsPage() {
                     const data = await getDrawDetailsClient(slug, parseInt(contest));
                     if (data) {
                         newResults[key] = data;
-                        console.log(`✅ Resultado carregado: ${key}`, data.dezenas);
+
                     }
                 } catch (err) {
                     console.error(`Erro ao buscar ${key}:`, err);
@@ -348,7 +372,7 @@ export default function BetsPage() {
             updated.push(betCopy);
         }
 
-        console.log(`📊 Atualizando ${updated.length} bets no estado`);
+
         setAllBets(updated);
     };
 

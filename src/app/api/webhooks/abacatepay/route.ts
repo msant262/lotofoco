@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, updateDoc, Timestamp, collection } from 'firebase/firestore';
-import crypto from 'crypto';
+
 
 export const runtime = 'edge';
 
@@ -14,10 +14,27 @@ export async function POST(req: NextRequest) {
         const signature = req.headers.get('x-abacatepay-signature');
 
         if (process.env.ABACATEPAY_WEBHOOK_SECRET && signature) {
-            const expectedSignature = crypto
-                .createHmac('sha256', process.env.ABACATEPAY_WEBHOOK_SECRET)
-                .update(body)
-                .digest('hex');
+            const encoder = new TextEncoder();
+            const keyData = encoder.encode(process.env.ABACATEPAY_WEBHOOK_SECRET);
+            const messageData = encoder.encode(body);
+
+            const key = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
+            );
+
+            const signatureBuffer = await crypto.subtle.sign(
+                'HMAC',
+                key,
+                messageData
+            );
+
+            const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
 
             if (signature !== expectedSignature) {
                 console.error('❌ Invalid webhook signature');

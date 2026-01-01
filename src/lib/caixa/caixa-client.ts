@@ -18,7 +18,7 @@ export const API_SLUGS: Record<string, string> = {
     'super-sete': 'supersete',
     'mais-milionaria': 'maismilionaria',
     'federal': 'federal',
-    'loteca': 'loteca'
+
 };
 
 export interface LotteryFullData {

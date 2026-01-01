@@ -1412,6 +1412,7 @@ export default function StatsPage() {
                                         </div>
                                         <div className="mt-4 space-y-2">
                                             <Progress
+                                                aria-label="Pontuação de Simetria"
                                                 value={historyStats.symmetryScore}
                                                 size="sm"
                                                 color={historyStats.symmetryScore > 70 ? 'success' : 'warning'}
@@ -2012,6 +2013,7 @@ function ListCardPro({ title, items, icon }: any) {
                             </div>
                         </div>
                         <Progress
+                            aria-label={`Frequência do número ${item.num}`}
                             value={(item.count / items[0].count) * 100}
                             size="sm"
                             color="success"
