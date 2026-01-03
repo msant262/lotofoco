@@ -307,12 +307,39 @@ export default function BetsPage() {
 
         await Promise.all(
             Array.from(contestsToFetch).map(async (key) => {
-                const [slug, contest] = key.split('-');
+                const lastHyphenIndex = key.lastIndexOf('-');
+                const slug = key.substring(0, lastHyphenIndex);
+                const contest = key.substring(lastHyphenIndex + 1);
+
+                let data = null;
+
                 try {
-                    const data = await getDrawDetailsClient(slug, parseInt(contest));
+                    // 1. Tentar Firestore
+                    data = await getDrawDetailsClient(slug, parseInt(contest));
+
+                    // 2. Se não achar no Firestore, tenta API (através do Proxy)
+                    if (!data) {
+                        console.log(`[Bets] Resultado ${key} não está no DB. Buscando na API...`);
+                        const res = await fetch(`/api/proxy-caixa?slug=${slug}&concurso=${contest}`);
+                        if (res.ok) {
+                            const apiData = await res.json();
+                            // Mapear para DrawDetails
+                            data = {
+                                concurso: apiData.concurso,
+                                data: apiData.data,
+                                dezenas: apiData.dezenas || [],
+                                acumulado: apiData.acumulado,
+                                valorArrecadado: apiData.valorArrecadado,
+                                listaRateioPremio: apiData.listaRateioPremio,
+                                localSorteio: apiData.localSorteio,
+                                nomeMunicipioUFSorteio: apiData.nomeMunicipioUFSorteio,
+                                listaMunicipioUFGanhadores: apiData.listaMunicipioUFGanhadores
+                            };
+                        }
+                    }
+
                     if (data) {
                         newResults[key] = data;
-
                     }
                 } catch (err) {
                     console.error(`Erro ao buscar ${key}:`, err);

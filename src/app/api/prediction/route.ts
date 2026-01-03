@@ -2,8 +2,8 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { getStatsClient } from "@/lib/firebase/games-client";
 
-// Uso 'nodejs' para garantir compatibilidade total com Firebase Admin/Client em ambiente serverless
-export const runtime = 'nodejs';
+// Uso 'edge' para compatibilidade com Cloudflare Pages
+export const runtime = 'edge';
 
 const apiKey = process.env.GOOGLE_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey || "mock-key");
