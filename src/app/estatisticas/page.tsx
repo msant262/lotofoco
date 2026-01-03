@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ChartContainer } from '@/components/ui/chart-container';
 import { ResponsiveBar } from '@nivo/bar';
 import { LOTTERIES } from '@/lib/config/lotteries';
 import { Loader2, Database, TrendingUp, TrendingDown, Filter, BarChart3, Calendar, Hash, ChevronDown, ChevronUp, Lock, Sparkles, Crown, Flame, Snowflake, Percent, Sigma, Layers, Target, X, Zap, Clock, Repeat, Trophy, Info } from 'lucide-react';
@@ -164,11 +165,17 @@ export default function EstatisticasPage() {
 
     const numberDetails = selectedNumber ? getNumberDetails(selectedNumber) : null;
 
-    // Chart data
-    const chartData = stats?.frequencia.slice(0, 15).map(f => ({ number: f.number, frequency: f.frequency })) || [];
-    const leastFrequentData = stats?.frequencia.slice(-10).reverse().map(f => ({ number: f.number, frequency: f.frequency })) || [];
-    const maxFreq = stats?.frequencia[0]?.frequency || 1;
-    const minFreq = stats?.frequencia[stats.frequencia.length - 1]?.frequency || 0;
+    // Chart data - validate to prevent react-spring animation errors
+    const chartData = (stats?.frequencia || []).slice(0, 15)
+        .filter(f => f && f.number && typeof f.frequency === 'number' && !isNaN(f.frequency) && f.frequency >= 0)
+        .map(f => ({ number: String(f.number), frequency: f.frequency }));
+
+    const leastFrequentData = (stats?.frequencia || []).slice(-10).reverse()
+        .filter(f => f && f.number && typeof f.frequency === 'number' && !isNaN(f.frequency) && f.frequency >= 0)
+        .map(f => ({ number: String(f.number), frequency: f.frequency }));
+
+    const maxFreq = chartData[0]?.frequency || 1;
+    const minFreq = leastFrequentData[leastFrequentData.length - 1]?.frequency || 0;
 
     // Número mais sorteado (ranking #1)
     const topNumber = stats?.maisFrequentes[0];
@@ -277,11 +284,12 @@ export default function EstatisticasPage() {
                                     <span className="text-xs text-emerald-500 flex items-center gap-1"><Database className="w-3 h-3" /> Dados reais</span>
                                 </div>
                                 <p className="text-sm text-slate-500 mb-4">Os 15 números que mais apareceram nos últimos {stats.totalConcursos} sorteios</p>
-                                <div className="h-[300px]">
+                                <ChartContainer height={300}>
                                     {chartData.length > 0 ? (
                                         <ResponsiveBar data={chartData} keys={['frequency']} indexBy="number"
                                             margin={{ top: 10, right: 20, bottom: 50, left: 50 }} padding={0.25}
                                             colors={[currentGame?.color || '#10b981']} borderRadius={4}
+                                            motionConfig="gentle"
                                             axisTop={null} axisRight={null}
                                             axisBottom={{ tickSize: 0, tickPadding: 8 }} axisLeft={{ tickSize: 0, tickPadding: 8 }}
                                             enableGridY={true} gridYValues={5} enableLabel={false}
@@ -293,7 +301,7 @@ export default function EstatisticasPage() {
                                             theme={{ text: { fill: '#64748b', fontSize: 12 }, grid: { line: { stroke: '#1e293b' } } }}
                                         />
                                     ) : <div className="h-full flex items-center justify-center text-slate-500">Sem dados</div>}
-                                </div>
+                                </ChartContainer>
                             </Card>
                         </div>
 
@@ -478,11 +486,12 @@ export default function EstatisticasPage() {
                                     <Card className="bg-slate-900/50 border-slate-800 p-5">
                                         <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-2"><TrendingDown className="w-5 h-5 text-blue-400" /> Números Menos Sorteados</h2>
                                         <p className="text-sm text-slate-500 mb-4">Os 10 números com menor frequência no período</p>
-                                        <div className="h-[200px]">
+                                        <ChartContainer height={200}>
                                             {leastFrequentData.length > 0 ? (
                                                 <ResponsiveBar data={leastFrequentData} keys={['frequency']} indexBy="number"
                                                     margin={{ top: 5, right: 15, bottom: 35, left: 45 }} padding={0.3}
                                                     colors={['#3b82f6']} borderRadius={4}
+                                                    motionConfig="gentle"
                                                     axisTop={null} axisRight={null}
                                                     axisBottom={{ tickSize: 0, tickPadding: 8 }} axisLeft={{ tickSize: 0, tickPadding: 8 }}
                                                     enableGridY={true} enableLabel={false}
@@ -494,7 +503,7 @@ export default function EstatisticasPage() {
                                                     theme={{ text: { fill: '#64748b', fontSize: 11 }, grid: { line: { stroke: '#1e293b' } } }}
                                                 />
                                             ) : <div className="h-full flex items-center justify-center text-slate-500">Sem dados</div>}
-                                        </div>
+                                        </ChartContainer>
                                     </Card>
                                 </div>
 

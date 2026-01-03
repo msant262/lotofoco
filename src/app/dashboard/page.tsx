@@ -25,8 +25,6 @@ import { LOTTERIES } from "@/lib/config/lotteries";
 import { SavedBetDialog } from "@/components/lottery/saved-bet-dialog";
 import { getLotteryInfoClient } from "@/lib/firebase/games-client";
 
-export const runtime = 'edge';
-
 export default function DashboardPage() {
     const { user } = useAuth();
     const [plan, setPlan] = useState<string>('free');

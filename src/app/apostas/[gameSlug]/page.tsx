@@ -1,10 +1,14 @@
 import GamePageClient from './GamePageClient';
+import { LOTTERIES } from '@/lib/config/lotteries';
 
-export const runtime = 'edge';
-export const dynamic = "force-dynamic";
+export async function generateStaticParams() {
+    return Object.keys(LOTTERIES).map((slug) => ({
+        gameSlug: slug,
+    }));
+}
 
 interface PageProps {
-    params: any;
+    params: Promise<{ gameSlug: string }>;
 }
 
 export default async function GamePage({ params }: PageProps) {

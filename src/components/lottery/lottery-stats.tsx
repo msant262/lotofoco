@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
+import { ChartContainer } from '@/components/ui/chart-container';
 import { LotteryConfig } from '@/lib/config/lotteries';
 import { cn } from '@/lib/utils';
 import { TrendingUp, Award, Loader2, Database, Flame, Snowflake, Hash, BarChart3, PieChart, History, Zap } from 'lucide-react';
@@ -72,21 +73,34 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
 
     const prob = calculateProbability(config.range, quantity, config.slug);
 
-    // Chart data
-    const hotChartData = stats?.frequencia.slice(0, 10).map(f => ({
-        number: f.number,
-        frequency: f.frequency
-    })) || [];
+    // Chart data - with validation to prevent react-spring errors
+    const hotChartData = (stats?.frequencia || [])
+        .slice(0, 10)
+        .filter(f => f && f.number && typeof f.frequency === 'number' && !isNaN(f.frequency))
+        .map(f => ({
+            number: String(f.number),
+            frequency: f.frequency
+        }));
 
-    const coldChartData = stats?.menosFrequentes?.slice(0, 10).map((n, i) => ({
-        number: n,
-        delay: i + 1
-    })) || [];
+    const coldChartData = (stats?.menosFrequentes || [])
+        .slice(0, 10)
+        .filter(n => n !== undefined && n !== null)
+        .map((n, i) => ({
+            number: String(n),
+            delay: i + 1
+        }));
 
-    // Pie chart data for par/impar
+    // Pie chart data for par/impar - ensure values are valid numbers
+    const paresValue = typeof stats?.parImpar?.pares === 'number' && !isNaN(stats.parImpar.pares)
+        ? stats.parImpar.pares
+        : 50;
+    const imparesValue = typeof stats?.parImpar?.impares === 'number' && !isNaN(stats.parImpar.impares)
+        ? stats.parImpar.impares
+        : 50;
+
     const parityData = [
-        { id: 'Par', value: stats?.parImpar.pares || 50, color: '#3b82f6' },
-        { id: 'Ímpar', value: stats?.parImpar.impares || 50, color: '#ec4899' }
+        { id: 'Par', value: paresValue, color: '#3b82f6' },
+        { id: 'Ímpar', value: imparesValue, color: '#ec4899' }
     ];
 
     if (loading) {
@@ -260,7 +274,7 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                                 </div>
 
                                 {hotChartData.length > 0 && (
-                                    <div className="h-[200px] w-full">
+                                    <ChartContainer height={200}>
                                         <ResponsiveBar
                                             data={hotChartData}
                                             keys={['frequency']}
@@ -271,6 +285,8 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                                             indexScale={{ type: 'band', round: true }}
                                             colors={[config.hexColor]}
                                             borderRadius={6}
+                                            animate={true}
+                                            motionConfig="gentle"
                                             axisTop={null}
                                             axisRight={null}
                                             axisBottom={{
@@ -303,7 +319,7 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                                                 }
                                             }}
                                         />
-                                    </div>
+                                    </ChartContainer>
                                 )}
                             </div>
                         )}
@@ -347,7 +363,7 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                         {/* Parity Analysis */}
                         {selectedTab === 'parity' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="h-[200px]">
+                                <ChartContainer height={200}>
                                     <ResponsivePie
                                         data={parityData}
                                         margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
@@ -356,6 +372,8 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                                         cornerRadius={4}
                                         colors={{ datum: 'data.color' }}
                                         borderWidth={0}
+                                        animate={true}
+                                        motionConfig="gentle"
                                         enableArcLinkLabels={false}
                                         arcLabelsSkipAngle={10}
                                         arcLabelsTextColor="#ffffff"
@@ -369,7 +387,7 @@ export function LotteryStats({ config, quantity }: LotteryStatsProps) {
                                             }
                                         }}
                                     />
-                                </div>
+                                </ChartContainer>
 
                                 <div className="space-y-4 flex flex-col justify-center">
                                     <div className="space-y-3">
